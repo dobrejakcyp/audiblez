@@ -73,6 +73,7 @@ class BookCard(wx.Panel):
         self._show_cover(metadata.cover_image)
         self._show_links(metadata.links())
         self.Layout()
+        self.GetParent().Layout()  # the card may now need more (or less) height than the previous book's
 
     def show_read_aloud_length(self, characters, included_count, total_count):
         self.detail_values["Read aloud"].SetLabel(

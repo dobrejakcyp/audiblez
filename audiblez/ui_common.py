@@ -33,5 +33,10 @@ def make_text_font(face, size):
 
 
 def describe_audio_length(characters):
-    hours = characters / CHARACTERS_PER_AUDIO_MINUTE / 60
-    return f"{characters:,} characters (about {hours:.1f} hours of audio)"
+    """ "836,717 characters (about 15.5 hours of audio)"; below one hour in minutes instead of "0.0 hours"."""
+    minutes = round(characters / CHARACTERS_PER_AUDIO_MINUTE)
+    if minutes < 60:
+        duration = f"about {minutes} minute{'' if minutes == 1 else 's'}"
+    else:
+        duration = f"about {characters / CHARACTERS_PER_AUDIO_MINUTE / 60:.1f} hours"
+    return f"{characters:,} characters ({duration} of audio)"

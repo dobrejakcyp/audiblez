@@ -288,6 +288,14 @@ def test_font_lists_are_cleaned_recommended_and_searchable():
     assert search_fonts(["Georgia", "Cambria"], "") == ["Georgia", "Cambria"]
 
 
+def test_audio_length_is_described_in_minutes_or_hours():
+    from audiblez.ui_common import describe_audio_length
+    assert describe_audio_length(836_717) == "836,717 characters (about 15.5 hours of audio)"
+    assert describe_audio_length(2_629) == "2,629 characters (about 3 minutes of audio)"
+    assert describe_audio_length(900) == "900 characters (about 1 minute of audio)"
+    assert describe_audio_length(0) == "0 characters (about 0 minutes of audio)"
+
+
 def test_combined_report_adds_up_chapter_reports():
     from audiblez.epub_text_extractor import CleaningReport
     _, first = read_aloud('<p class="note">aaaa</p>')

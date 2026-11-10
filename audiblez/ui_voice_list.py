@@ -13,7 +13,7 @@ from audiblez.voice_library import MODEL_NAME, all_voices
 
 
 class VoiceListDialog(wx.Dialog):
-    COLUMNS = [("Voice", 150), ("Language", 150), ("Gender", 70), ("On this computer", 120), ("Sample ready", 100)]
+    COLUMNS = [("Voice", 150), ("Language", 150), ("Gender", 70), ("On this computer", 140), ("Sample ready", 100)]
 
     def __init__(self, parent, main_window, current_voice):
         super().__init__(parent, title=f"All voices of {MODEL_NAME}", size=(680, 620),
