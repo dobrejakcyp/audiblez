@@ -217,6 +217,16 @@ def test_story_text_is_never_picture_text_even_in_a_book_full_of_pictures():
     assert groups == {"center": "short labels", "fig-credit": "picture credits"}, groups
 
 
+def test_story_paragraphs_without_a_class_still_count_as_book_text():
+    from audiblez.picture_text_detector import PictureTextDetector
+    # Many books have plain <p> story paragraphs. They must count as book text, otherwise the
+    # captions look like a big part of the book and are wrongly treated as story text.
+    story = "<p>A plain story paragraph without any class name, long enough to be real text.</p>" * 30
+    pictures = '<div><img src="a.png"/></div><p class="plate">Plate 1. A caption.</p>' * 3
+    groups = PictureTextDetector().find_groups([FakeHtmlChapter(story + pictures)])
+    assert [group.css_class for group in groups] == ["plate"], groups
+
+
 def test_every_extracted_line_remembers_where_it_came_from():
     from audiblez.epub_text_extractor import EpubTextExtractor
     kinds = []

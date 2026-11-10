@@ -97,13 +97,15 @@ class PictureTextDetector:
             near_pictures = self._text_blocks_near_pictures(page)
             for block in page.find_all(TEXT_BLOCK_TAGS):
                 text = " ".join(block.get_text().split())
+                if not text:
+                    continue
+                self.book_characters += len(text)  # ALL text counts here, also paragraphs without a class name
                 css_classes = block.get("class") or []
-                if not text or not css_classes:  # without a class name we could not target it anyway
+                if not css_classes:  # without a class name it could not be removed anyway, so it is not a group
                     continue
                 group = groups.setdefault((block.name, css_classes[0]), PictureTextGroup(block.name, css_classes[0]))
                 group.total_count += 1
                 group.characters += len(text)
-                self.book_characters += len(text)
                 if id(block) in near_pictures:
                     group.near_picture_count += 1
                     if len(group.samples) < self.SAMPLES_PER_GROUP:
