@@ -10,9 +10,6 @@ import wx
 from audiblez.ui_common import SPACING
 from audiblez.voice_library import MODEL_NAME, all_voices
 
-NOT_SUPPORTED_NOTE = (
-    f"{MODEL_NAME} has no Czech voice: a Czech book read by one of these voices is pronounced as if it were "
-    "English. (Two local Czech engines, Piper and XTTS-v2, were tried in November 2026 and not good enough.)")
 
 
 class VoiceListDialog(wx.Dialog):
@@ -32,8 +29,6 @@ class VoiceListDialog(wx.Dialog):
         self.fill_table()
         self.table.Bind(wx.EVT_LIST_ITEM_ACTIVATED, lambda event: self.listen())  # double-click or Enter
 
-        note = wx.StaticText(self, label=NOT_SUPPORTED_NOTE)
-        note.Wrap(640)
 
         listen_button = wx.Button(self, label="Listen")
         use_button = wx.Button(self, label="Use this voice")
@@ -52,7 +47,6 @@ class VoiceListDialog(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(intro, 0, wx.ALL, SPACING * 2)
         sizer.Add(self.table, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, SPACING * 2)
-        sizer.Add(note, 0, wx.ALL, SPACING * 2)
         sizer.Add(buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, SPACING * 2)
         self.SetSizer(sizer)
 
