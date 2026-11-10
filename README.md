@@ -1,5 +1,21 @@
 # Audiblez: Generate  audiobooks from e-books
 
+> **About this fork.** This is [dobrejakcyp](https://github.com/dobrejakcyp)'s fork of
+> [santinic/audiblez](https://github.com/santinic/audiblez), created by **Claudio Santini** and its contributors,
+> based on release v0.4.9. All credit for Audiblez goes to them; the original code lives unchanged in `audiblez/`
+> (plus a few local fixes) and keeps its MIT licence.
+>
+> The fork adds **`audiblez_clean/`**, a reworked version focused on hearing only the book itself:
+> - cleaning rules for footnotes, note markers, indexes, contents pages and picture captions/credits
+>   (picture text is found by its position next to images, so it works for any EPUB);
+> - real chapter titles from the table of contents, with a "why" for every part that is or isn't read;
+> - a redesigned window: tool column, book card with links, instant offline voice samples, a speed slider,
+>   a Stop button that keeps finished chapters, a status bar and remembered settings.
+>
+> Run it with `python -m audiblez_clean.ui` (window) or `python -m audiblez_clean.cli book.epub --report`
+> (command line). Voice samples: `python -m audiblez_clean.voice_library`.
+> Self-checks: `python -m audiblez_clean.test_cleaning_rules`.
+
 [![Installing via pip and running](https://github.com/santinic/audiblez/actions/workflows/pip-install.yaml/badge.svg)](https://github.com/santinic/audiblez/actions/workflows/pip-install.yaml)
 [![Git clone and run](https://github.com/santinic/audiblez/actions/workflows/git-clone-and-run.yml/badge.svg)](https://github.com/santinic/audiblez/actions/workflows/git-clone-and-run.yml)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/audiblez)
