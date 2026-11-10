@@ -20,7 +20,8 @@ import re
 from io import StringIO
 from types import SimpleNamespace
 from tabulate import tabulate
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from urllib.parse import unquote
 from string import Formatter
 from bs4 import BeautifulSoup
 from kokoro import KPipeline
@@ -71,10 +72,15 @@ def set_espeak_library():
 
 def main(file_path, voice, pick_manually, speed, output_folder='.',
          max_chapters=None, max_sentences=None, selected_chapters=None, post_event=None):
+    def status(message, busy=False):  # busy: phase without a percentage, UI shows an animated bar
+        print(message)
+        if post_event: post_event('CORE_STATUS', message=message, busy=busy)
+
     if post_event: post_event('CORE_STARTED')
+    status('Loading language model…', busy=True)
     load_spacy()
-    if output_folder != '.':
-        Path(output_folder).mkdir(parents=True, exist_ok=True)
+    output_folder = Path(output_folder).resolve()  # relative paths break ffmpeg concat (issue #133)
+    output_folder.mkdir(parents=True, exist_ok=True)
 
     filename = Path(file_path).name
 
@@ -107,22 +113,28 @@ def main(file_path, voice, pick_manually, speed, output_folder='.',
     stats = SimpleNamespace(
         total_chars=sum(map(len, texts)),
         processed_chars=0,
-        chars_per_sec=500 if torch.cuda.is_available() else 50)
+        chars_per_sec=500 if torch.cuda.is_available() else 50,  # initial guess, replaced by measured speed
+        synth_chars=0, synth_start=0, chapter='')
     print('Started at:', time.strftime('%H:%M:%S'))
     print(f'Total characters: {stats.total_chars:,}')
     print('Total words:', len(' '.join(texts).split()))
     eta = strfdelta((stats.total_chars - stats.processed_chars) / stats.chars_per_sec)
     print(f'Estimated time remaining (assuming {stats.chars_per_sec} chars/sec): {eta}')
+    status('Loading voice model…', busy=True)
     set_espeak_library()
     pipeline = KPipeline(lang_code=voice[0])  # a for american or b for british etc.
+    stats.synth_start = time.time()
 
     chapter_wav_files = []
+    chapter_titles = {}
     for i, chapter in enumerate(selected_chapters, start=1):
         if max_chapters and i > max_chapters: break
+        stats.chapter = f'{i} of {len(selected_chapters)}'
         text = chapter.extracted_text
         xhtml_file_name = chapter.get_name().replace(' ', '_').replace('/', '_').replace('\\', '_')
         chapter_wav_path = Path(output_folder) / filename.replace(extension, f'_chapter_{i}_{voice}_{xhtml_file_name}.wav')
         chapter_wav_files.append(chapter_wav_path)
+        chapter_titles[chapter_wav_path] = chapter.title
         if Path(chapter_wav_path).exists():
             print(f'File for chapter {i} already exists. Skipping')
             stats.processed_chars += len(text)
@@ -154,8 +166,12 @@ def main(file_path, voice, pick_manually, speed, output_folder='.',
             chapter_wav_files.remove(chapter_wav_path)
 
     if has_ffmpeg:
-        create_index_file(title, creator, chapter_wav_files, output_folder)
-        create_m4b(chapter_wav_files, filename, cover_image, output_folder)
+        status('Creating the .m4b file: joining chapters and compressing audio (can take several minutes)…', busy=True)
+        create_index_file(title, creator, chapter_wav_files, output_folder, chapter_titles)
+        if create_m4b(chapter_wav_files, filename, cover_image, output_folder):
+            status(f'✅ Done: {filename.replace(".epub", ".m4b")} created')
+        else:
+            status('❌ Creating the .m4b file failed, see the console window for details')
         if post_event: post_event('CORE_FINISHED')
 
 
@@ -202,7 +218,11 @@ def gen_audio_segments(pipeline, text, voice, speed, stats=None, max_sentences=N
             audio_segments.append(audio)
         if stats:
             stats.processed_chars += len(sent.text)
-            stats.progress = stats.processed_chars * 100 // stats.total_chars
+            stats.synth_chars += len(sent.text)  # excludes skipped chapters, so the speed below is real
+            elapsed = time.time() - stats.synth_start
+            if elapsed > 10:  # past model warm-up
+                stats.chars_per_sec = stats.synth_chars / elapsed
+            stats.progress = min(100, stats.processed_chars * 100 // stats.total_chars)
             stats.eta = strfdelta((stats.total_chars - stats.processed_chars) / stats.chars_per_sec)
             if post_event: post_event('CORE_PROGRESS', stats=stats)
             print(f'Estimated time remaining: {stats.eta}')
@@ -221,6 +241,19 @@ def gen_text(text, voice='af_heart', output_file='text.wav', speed=1, play=False
         subprocess.run(['ffplay', '-autoexit', '-nodisp', output_file])
 
 
+# "(fig. 20)", "(see fig. 5)", "(detail of fig. 19)", "(figs. 63, 64)", "(Figure 3)" -- not read aloud
+FIGURE_REF = re.compile(r'\s*\((?:see\s+(?:also\s+)?|detail\s+of\s+|cf\.\s*)?(?:figs?\.|figures?)\s*\d+[^()]*\)', re.I)
+# photo/figure captions are not read aloud: class "figcap", "caption", "fig-caption", "image-caption"... (not "dropcap")
+CAPTION_CLASS = re.compile(r'(?:fig|img|image|photo)?[-_]?cap(?:tion)?s?', re.I)
+# decorative note markers / section breaks, e.g. ♦ endnote links, "■ ■ ■" -- not read aloud (• † ‡ kept: can carry meaning)
+DECORATIVE = re.compile('[♦◆◇❖■□⁂✦✧❧☙]')
+
+
+def is_caption(element):
+    return any(e.name == 'figcaption' or any(CAPTION_CLASS.fullmatch(c) for c in e.get('class') or [])
+               for e in [element, *element.parents])
+
+
 def find_document_chapters_and_extract_texts(book):
     """Returns every chapter that is an ITEM_DOCUMENT and enriches each chapter with extracted_text."""
     document_chapters = []
@@ -231,14 +264,36 @@ def find_document_chapters_and_extract_texts(book):
         soup = BeautifulSoup(xml, features='lxml')
         chapter.extracted_text = ''
         html_content_tags = ['title', 'p', 'h1', 'h2', 'h3', 'h4', 'li']
-        for text in [c.text.strip() for c in soup.find_all(html_content_tags) if c.text]:
+        for text in [DECORATIVE.sub('', FIGURE_REF.sub('', c.text)).strip() for c in soup.find_all(html_content_tags) if c.text and not is_caption(c)]:
+            if not any(ch.isalnum() for ch in text):  # nothing speakable left, e.g. a lone ♦ or "* * *"
+                continue
             if not text.endswith('.'):
                 text += '.'
             chapter.extracted_text += text + '\n'
         document_chapters.append(chapter)
     for i, c in enumerate(document_chapters):
         c.chapter_index = i  # this is used in the UI to identify chapters
+    set_chapter_titles(book, document_chapters)
     return document_chapters
+
+
+def set_chapter_titles(book, document_chapters):
+    """Names each chapter from the book's table of contents. A document without its own entry continues
+    the previous one (e.g. a chapter's title page is in the TOC, its text is in the next file)."""
+    toc = {}
+
+    def walk(items):
+        for item in items:
+            if isinstance(item, tuple):  # (Section, children)
+                walk([item[0]])
+                walk(item[1])
+            elif (href := unquote((getattr(item, 'href', '') or '').split('#')[0])) and item.title:
+                toc.setdefault(PurePosixPath(href).name, item.title.strip())
+
+    walk(book.toc)
+    title = ''
+    for c in document_chapters:
+        c.title = title = toc.get(PurePosixPath(c.get_name()).name, title)
 
 
 def is_chapter(c):
@@ -294,7 +349,7 @@ def strfdelta(tdelta, fmt='{D:02}d {H:02}h {M:02}m {S:02}s'):
 
 def concat_wavs_with_ffmpeg(chapter_files, output_folder, filename):
     wav_list_txt = Path(output_folder) / filename.replace('.epub', '_wav_list.txt')
-    with open(wav_list_txt, 'w') as f:
+    with open(wav_list_txt, 'w', encoding='utf-8') as f:
         for wav_file in chapter_files:
             f.write(f"file '{wav_file}'\n")
     concat_file_path = Path(output_folder) / filename.replace('.epub', '.tmp.mp4')
@@ -313,7 +368,7 @@ def create_m4b(chapter_files, filename, cover_image, output_folder):
         cover_file_path = Path(output_folder) / 'cover'
         with open(cover_file_path, 'wb') as f:
             f.write(cover_image)
-        cover_image_args = ["-i", f'{cover_file_path}', "-map", "0:a", "-map", "2:v"]
+        cover_image_args = ["-i", f'{cover_file_path}', "-map", "2:v"]
     else:
         cover_image_args = []
 
@@ -323,19 +378,24 @@ def create_m4b(chapter_files, filename, cover_image, output_folder):
         '-i', f'{concat_file_path}',  # input 0 file (audio)
         '-i', f'{chapters_txt_path}',  # input 1 file (chapters)
         *cover_image_args,  # cover image
-        '-map', '0',  # map all streams from input 0
+        '-map', '0:a',  # audio from input 0 (mapping all of input 0 duplicated the audio when a cover was added)
         '-map_metadata', '1',  # map metadata from input 1
-        '-c:a', 'copy',  # copy audio codec
+        '-c:a', 'aac', '-b:a', '64k',  # compress audio; copying stored raw PCM wav (huge files)
         '-c:v', 'copy',  # copy video codec
         '-disposition:v', 'attached_pic',  # attach cover image
-        '-c', 'copy',  # copy codec
+        '-movflags', '+faststart',  # index/chapters at file start; some players (e.g. Voice) miss them after a >2GB mdat
         '-f', 'mp4',  # format
         f'{final_filename}'  # output file
     ])
     Path(concat_file_path).unlink()
-    if proc.returncode == 0:
+    if proc.returncode == 0 and final_filename.exists() and final_filename.stat().st_size > 0:
         print(f'{final_filename} created. Enjoy your audiobook.')
-        print('Feel free to delete the intermediary .wav chapter files, the .m4b is all you need.')
+        for f in [*chapter_files, chapters_txt_path, *([cover_file_path] if cover_image else [])]:
+            Path(f).unlink(missing_ok=True)
+        print('Removed the intermediary .wav chapter files.')
+        return True
+    print(f'Creating {final_filename} failed; the .wav chapter files are kept, rerun to retry without regenerating them.')
+    return False
 
 
 def probe_duration(file_name):
@@ -344,15 +404,21 @@ def probe_duration(file_name):
     return float(proc.stdout.strip())
 
 
-def create_index_file(title, creator, chapter_mp3_files, output_folder):
+def ffmetadata_escape(s):
+    return re.sub(r'([=;#\\\n])', r'\\\1', s)
+
+
+def create_index_file(title, creator, chapter_mp3_files, output_folder, chapter_titles=None):
+    chapter_titles = chapter_titles or {}
     with open(Path(output_folder) / "chapters.txt", "w", encoding="utf-8") as f:
-        f.write(f";FFMETADATA1\ntitle={title}\nartist={creator}\n\n")
+        f.write(f";FFMETADATA1\ntitle={ffmetadata_escape(title)}\nartist={ffmetadata_escape(creator)}\n\n")
         start = 0
         i = 0
         for c in chapter_mp3_files:
             duration = probe_duration(c)
             end = start + (int)(duration * 1000)
-            f.write(f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={start}\nEND={end}\ntitle=Chapter {i}\n\n")
+            name = ffmetadata_escape(chapter_titles.get(c) or f'Chapter {i + 1}')
+            f.write(f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={start}\nEND={end}\ntitle={name}\n\n")
             i += 1
             start = end
 

@@ -13,7 +13,7 @@ def cli_main():
               '  audiblez-ui\n\n' +
               'available voices:\n' +
               available_voices_str)
-    default_voice = 'af_sky'
+    default_voice = 'bm_george'
     parser = argparse.ArgumentParser(epilog=epilog, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('epub_file_path', help='Path to the epub file')
     parser.add_argument('-v', '--voice', default=default_voice, help=f'Choose narrating voice: {voices_str}')

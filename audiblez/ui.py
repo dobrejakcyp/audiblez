@@ -21,6 +21,7 @@ from audiblez.voices import voices, flags
 
 EVENTS = {
     'CORE_STARTED': NewEvent(),
+    'CORE_STATUS': NewEvent(),
     'CORE_PROGRESS': NewEvent(),
     'CORE_CHAPTER_STARTED': NewEvent(),
     'CORE_CHAPTER_FINISHED': NewEvent(),
@@ -32,9 +33,11 @@ border = 5
 
 class MainWindow(wx.Frame):
     def __init__(self, parent, title):
-        screen_width, screen_h = wx.GetDisplaySize()
-        self.window_width = int(screen_width * 0.6)
-        super().__init__(parent, title=title, size=(self.window_width, self.window_width * 3 // 4))
+        # size from the usable height (screen minus taskbar): width-based sizing overflowed ultrawide screens
+        area = wx.Display().GetClientArea()
+        window_height = int(area.height * 0.75)  # window size factor
+        self.window_width = min(window_height * 4 // 3, int(area.width * 0.6))
+        super().__init__(parent, title=title, size=(self.window_width, window_height))
         self.chapters_panel = None
         self.preview_threads = []
         self.selected_chapter = None
@@ -42,6 +45,7 @@ class MainWindow(wx.Frame):
         self.synthesis_in_progress = False
 
         self.Bind(EVENTS['CORE_STARTED'][1], self.on_core_started)
+        self.Bind(EVENTS['CORE_STATUS'][1], self.on_core_status)
         self.Bind(EVENTS['CORE_CHAPTER_STARTED'][1], self.on_core_chapter_started)
         self.Bind(EVENTS['CORE_CHAPTER_FINISHED'][1], self.on_core_chapter_finished)
         self.Bind(EVENTS['CORE_PROGRESS'][1], self.on_core_progress)
@@ -77,6 +81,17 @@ class MainWindow(wx.Frame):
         self.params_panel.Layout()
         self.synth_panel.Layout()
 
+    def on_core_status(self, event):
+        self.progress_bar_label.SetLabel(event.message)
+        if event.busy:
+            self.progress_bar.Pulse()  # animated bar: working, no percentage known
+        elif event.message.startswith('✅'):
+            self.progress_bar.SetValue(100)
+            self.eta_label.SetLabel('')
+        else:
+            self.progress_bar.SetValue(0)
+        self.synth_panel.Layout()
+
     def on_core_chapter_started(self, event):
         # print('CORE_CHAPTER_STARTED', event.chapter_index)
         self.set_table_chapter_status(event.chapter_index, "⏳ In Progress")
@@ -89,8 +104,10 @@ class MainWindow(wx.Frame):
     def on_core_progress(self, event):
         # print('CORE_PROGRESS', event.progress)
         self.progress_bar.SetValue(event.stats.progress)
-        self.progress_bar_label.SetLabel(f"Synthesis Progress: {event.stats.progress}%")
-        self.eta_label.SetLabel(f"Estimated Time Remaining: {event.stats.eta}")
+        self.progress_bar_label.SetLabel(
+            f"Generating speech, chapter {event.stats.chapter}: {event.stats.progress}% of the book")
+        self.eta_label.SetLabel(
+            f"Estimated Time Remaining: {event.stats.eta} ({event.stats.chars_per_sec:.0f} characters/sec)")
         self.synth_panel.Layout()
 
     def on_core_finished(self, event):
@@ -294,7 +311,7 @@ class MainWindow(wx.Frame):
                 flag_and_voice_list.append(f'{flags[code]} {v}')
 
         voice_label = wx.StaticText(panel, label="Voice:")
-        default_voice = flag_and_voice_list[0]
+        default_voice = next(v for v in flag_and_voice_list if v.endswith(' bm_george'))
         self.selected_voice = default_voice
         voice_dropdown = wx.ComboBox(panel, choices=flag_and_voice_list, value=default_voice)
         voice_dropdown.Bind(wx.EVT_COMBOBOX, self.on_select_voice)
@@ -571,8 +588,13 @@ class CoreThread(threading.Thread):
         self.params = params
 
     def run(self):
-        import core
-        core.main(**self.params, post_event=self.post_event)
+        import audiblez.core as core
+        try:
+            core.main(**self.params, post_event=self.post_event)
+        except Exception as e:  # otherwise the GUI just freezes with no explanation
+            import traceback
+            traceback.print_exc()
+            self.post_event('CORE_STATUS', message=f'❌ Failed: {e} (details in the console window)', busy=False)
 
     def post_event(self, event_name, **kwargs):
         # eg. 'EVENT_CORE_PROGRESS' -> EventCoreProgress, EVENT_CORE_PROGRESS
