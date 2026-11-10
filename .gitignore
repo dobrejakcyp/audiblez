@@ -12,3 +12,15 @@ chapters.txt
 *.onnx
 dist
 .venv
+
+# Local data of this computer: never versioned
+venv/
+voice_samples/
+settings.json
+settings.tmp
+audiblez_original_backup/
+*.m4b
+*.wav
+*.mp4
+__pycache__/
+*.pyc
