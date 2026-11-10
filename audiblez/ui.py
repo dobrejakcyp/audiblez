@@ -3,16 +3,19 @@
 """
 ui.py - the main window of audiblez (built with wxPython). Start it with:
 
-    venv\\Scripts\\python -m audiblez.ui
+    uv run audiblez-ui          (or: .venv\\Scripts\\python -m audiblez.ui)
 
 WINDOW LAYOUT
     +--------------+--------------------------------------------------+
     | ToolColumn   | BookCard  (cover, details, links)                |
     | 1 Book file  +------------------------+-------------------------+
     | 2 Voice      | ChapterListPanel       | TextPreviewPanel        |
-    | 3 Speed      | (ticked = read aloud)  | (editable text)         |
-    | 4 Preview    |                        |                         |
-    | 5 Create     |          <- drag the divider ->                  |
+    | 3 Speed      | (ticked = read aloud)  | (editable text;         |
+    | 4 Picture    |                        |  right-click to hear it)|
+    |   text       |                        |                         |
+    | ............ |                        |                         |
+    | Create       |          <- drag the divider ->                  |
+    | (always seen)|                        |                         |
     +--------------+------------------------+-------------------------+
     | StatusBanner: what the program is doing right now  |  summary   |
     +-----------------------------------------------------------------+
@@ -24,7 +27,7 @@ HOW THE PARTS TALK TO EACH OTHER
     a section", "the user clicked Create"), and MainWindow tells the other panels what to show.
 
 SLOW WORK RUNS IN THE BACKGROUND
-    Opening a book (BookLoader), previews and making the audiobook (CoreThread) run in background
+    Opening a book (BookLoader), reading text aloud and making the audiobook (CoreThread) run in background
     threads, so the window stays responsive and the status banner can show what is happening.
     Background threads must never touch the window directly: they hand results back with
     wx.CallAfter(...) or with the EVENTS below.
@@ -39,6 +42,7 @@ import wx
 import wx.adv
 from wx.lib.newevent import NewEvent
 
+from audiblez.picture_text_detector import find_lines_of_kind
 from audiblez.settings import UserSettings
 from audiblez.ui_book_panels import BookCard, ChapterListPanel, TextPreviewPanel
 from audiblez.ui_common import SPACING, describe_audio_length
@@ -48,7 +52,7 @@ from audiblez.voice_library import VoiceSampleLibrary
 
 ORIGINAL_AUTHOR = "Claudio Santini (2025) and many contributors - https://claudio.uk"
 CURRENT_MAINTAINER = "Lukas"
-PREVIEW_LENGTH = 300  # characters read by the Preview button when nothing is highlighted
+LONGEST_READ_ALOUD = 3000  # characters; reading a whole chapter aloud would take minutes to prepare
 
 # Events sent by core.main() (running in CoreThread) to the window
 EVENTS = {
@@ -175,7 +179,10 @@ class MainWindow(wx.Frame):
         self.selected_section = None
         self.epub_path = None
         self.book_title = ""
+        self.book_metadata = None
         self.synthesis_in_progress = False
+        self.reading_aloud = False  # True while a piece of text is being prepared for reading aloud
+        self.reading_cancelled = False  # set by "Stop reading" while it is being prepared
         self.voice_samples = VoiceSampleLibrary()
         self.playing_sound = None  # keep a reference, otherwise the sound is destroyed while playing
 
@@ -189,6 +196,7 @@ class MainWindow(wx.Frame):
         self.create_layout()
         self.status = StatusBanner(self)
         self.status.show("Ready. Open an EPUB file to begin (1. Book file, on the left).")
+        self.tools.create_section.show_summary("Open a book first.", "-")
         self.restore_settings()
         self.Bind(wx.EVT_CLOSE, self.on_close)
         wx.CallAfter(self.put_divider_in_the_middle)  # only possible once the window has its real size
@@ -311,6 +319,7 @@ class MainWindow(wx.Frame):
         if reloading_same_book:  # keep the user's own ticks and the selected section
             self.copy_choices_from_previous_load(sections)
         self.epub_path = file_path
+        self.book_metadata = metadata
         self.book_title = metadata.title or Path(file_path).stem
         self.book_sections = sections
         self.picture_text_groups = picture_text_groups
@@ -347,7 +356,19 @@ class MainWindow(wx.Frame):
         included = [section for section in sections if section.is_included]
         return (included or sections)[0]
 
-    # ---- 6. picture text ---------------------------------------------------------------------
+    # ---- 4. picture text ---------------------------------------------------------------------
+
+    def find_picture_text_lines(self, css_class):
+        """Every (section, line number) in the book that came from this kind of picture text."""
+        return find_lines_of_kind(self.book_sections, css_class)
+
+    def show_picture_text_line(self, section, line_number):
+        """Open the section in the text column and scroll to the line (Previous/Next of tool 4)."""
+        self.chapter_list.select_section(section)
+        if self.text_preview.section is not section:  # the row was already selected, so no event came
+            self.on_section_selected(section)
+        wx.CallAfter(self.text_preview.reveal_line, line_number)  # after the text has been put in place
+        self.status.show(f"Picture text in \"{section.display_title}\", line {line_number + 1}")
 
     def on_apply_picture_text(self, event):
         """Reload the book, leaving out the ticked kinds of picture text, and remember the choice."""
@@ -376,7 +397,9 @@ class MainWindow(wx.Frame):
         included = [section for section in self.book_sections if section.is_included]
         characters = sum(section.text_length for section in included)
         self.book_card.show_read_aloud_length(characters, len(included), len(self.book_sections))
-        self.tools.create_section.show_summary(f"{len(included)} sections, {describe_audio_length(characters)}")
+        file_name = self.book_metadata.audiobook_file_name(fallback=Path(self.epub_path).stem) + ".m4b"
+        self.tools.create_section.show_summary(f"{len(included)} sections, {describe_audio_length(characters)}",
+                                               file_name)
         self.status.show_summary(f"{self.book_title[:40]}: {len(included)} of {len(self.book_sections)} sections ticked")
 
     def on_section_text_edited(self, section):
@@ -402,31 +425,42 @@ class MainWindow(wx.Frame):
         self.run_in_background(lambda: self.voice_samples.create_sample(voice),
                                on_done=lambda path: self.play_wav(path, f"Playing a sample of {voice.display_name}"))
 
-    # ---- 4. preview of the book text ---------------------------------------------------------
+    # ---- reading highlighted text aloud (right-click in the text column) -----------------------
 
-    def on_preview(self, event):
-        text = self.text_preview.selected_text() or (
-            self.selected_section.chapter.extracted_text[:PREVIEW_LENGTH] if self.selected_section else "")
-        if not text.strip():
-            self.status.show("Nothing to preview: the selected section has no text.")
+    def read_aloud(self, text):
+        """Read `text` with the chosen voice and speed. Called from the text column's right-click menu."""
+        text = text.strip()
+        if not text:
             return
+        if self.reading_aloud:
+            self.status.show("Still preparing the previous piece of text, please wait a moment.")
+            return
+        shortened = len(text) > LONGEST_READ_ALOUD
+        text = text[:LONGEST_READ_ALOUD]
         voice, speed = self.tools.voice_section.voice, self.tools.speed_section.speed
         torch.set_default_device(self.tools.voice_section.device)
-        self.tools.preview_section.show_running(True)
-        self.status.show(f"Preparing the preview with {voice.display_name} at speed {speed} "
-                         "(the first preview of a language takes a few seconds) ...")
-        preview_file = Path(gettempdir()) / "audiblez_preview.wav"
+        self.reading_aloud, self.reading_cancelled = True, False
+        self.status.show(f"Preparing {len(text):,} characters with {voice.display_name} at speed {speed}"
+                         + (f" (only the first {LONGEST_READ_ALOUD:,})" if shortened else "")
+                         + "; the first time for a language takes a few seconds ...")
+        sound_file = Path(gettempdir()) / "audiblez_read_aloud.wav"
 
         def when_done(path):
-            self.tools.preview_section.show_running(False)
-            self.play_wav(path, f"Playing the preview ({len(text)} characters)")
+            self.reading_aloud = False
+            if not self.reading_cancelled:
+                self.play_wav(path, f"Reading {len(text):,} characters aloud. Right-click → Stop reading to stop.")
 
         def when_failed(error):
-            self.tools.preview_section.show_running(False)
-            self.status.show(f"❌ Preview failed: {error}")
+            self.reading_aloud = False
+            self.status.show(f"❌ Reading aloud failed: {error}")
 
-        self.run_in_background(lambda: self.voice_samples.speak_to_file(text, voice, speed, preview_file),
+        self.run_in_background(lambda: self.voice_samples.speak_to_file(text, voice, speed, sound_file),
                                on_done=when_done, on_failed=when_failed)
+
+    def stop_reading(self):
+        wx.adv.Sound.Stop()
+        self.reading_cancelled = True  # if it is still being prepared, it will not start playing
+        self.status.show("Stopped reading.")
 
     # ---- small helpers for sound and background work -----------------------------------------
 
@@ -448,7 +482,7 @@ class MainWindow(wx.Frame):
             wx.CallAfter(on_done, result)
         threading.Thread(target=run, daemon=True).start()
 
-    # ---- 5. creating the audiobook -----------------------------------------------------------
+    # ---- creating the audiobook (fixed at the bottom of the tool column) -----------------------
 
     def on_start(self, event):
         selected_chapters = [section.chapter for section in self.book_sections if section.is_included]

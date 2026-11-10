@@ -239,6 +239,33 @@ def test_version_is_the_same_in_the_package_and_in_pyproject():
     assert __version__ == packaging_version, f"audiblez/__init__.py says {__version__}, pyproject.toml says {packaging_version}"
 
 
+def test_audiobook_file_names_are_safe_and_come_from_the_book_details():
+    from audiblez.book_metadata import audiobook_file_name, safe_file_name
+    assert audiobook_file_name("Sapiens: A Brief History", ["Yuval Noah Harari"], "x") == \
+        "Yuval Noah Harari - Sapiens - A Brief History"
+    assert audiobook_file_name("", [], "Sapiens_ -- Anna's Archive") == "Sapiens_ -- Anna's Archive", "no title: EPUB name"
+    assert audiobook_file_name("", [], "") == "audiobook"
+    assert safe_file_name('Who? What / Why*  ') == "Who- What - Why-", "forbidden characters become dashes"
+    assert safe_file_name("The End.  ") == "The End", "Windows refuses names ending in a dot or space"
+    assert safe_file_name("Zločin a trest") == "Zločin a trest", "accented letters are fine"
+    assert safe_file_name("CON") == "CON_", "Windows reserves CON"
+    assert len(safe_file_name("x" * 500)) == 150
+
+
+def test_lines_of_one_kind_are_found_across_chapters():
+    from audiblez.picture_text_detector import find_lines_of_kind
+
+    class Section:
+        def __init__(self, line_kinds):
+            self.chapter = type("Chapter", (), {"line_kinds": line_kinds})()
+
+    first = Section([("p", ("indent",)), ("p", ("capl0",)), ("p", ("credit",))])
+    empty = Section([])
+    second = Section([("p", ("capl0",)), ("p", ("indent",)), ("p", ("capl0", "small"))])
+    found = find_lines_of_kind([first, empty, second], "capl0")
+    assert [(section is first, line) for section, line in found] == [(True, 1), (False, 0), (False, 2)], found
+
+
 def test_combined_report_adds_up_chapter_reports():
     from audiblez.epub_text_extractor import CleaningReport
     _, first = read_aloud('<p class="note">aaaa</p>')

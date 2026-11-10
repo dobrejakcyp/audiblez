@@ -168,3 +168,18 @@ class PictureTextDetector:
         return any(rule.matches(candidate)
                    for candidate in [element, *element.parents] if candidate.name
                    for rule in self.rules_already_applied)
+
+
+def find_lines_of_kind(sections, css_class):
+    """
+    Every line of the book that came from an element with `css_class` (e.g. all "capl0" captions),
+    as a list of (section, line number) in book order. Used by the Previous/Next buttons of the
+    picture text tool to jump from one occurrence to the next, across chapters.
+    Lines that were removed from the book are not in the text any more, so they are not found.
+    """
+    found = []
+    for section in sections:
+        for line_number, (_tag, classes) in enumerate(getattr(section.chapter, "line_kinds", None) or []):
+            if css_class in classes:
+                found.append((section, line_number))
+    return found

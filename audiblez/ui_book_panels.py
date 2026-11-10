@@ -14,7 +14,7 @@ import wx
 import wx.adv
 from PIL import Image
 
-from audiblez.ui_common import SPACING, bold, describe_audio_length
+from audiblez.ui_common import SPACING, bold, describe_audio_length, set_wrapped_text
 
 
 # =============================================================================================
@@ -63,8 +63,7 @@ class BookCard(wx.Panel):
         self.SetSizer(box_sizer)
 
     def show_book(self, metadata):
-        self.title.SetLabel(metadata.title or "(no title)")
-        self.title.Wrap(650)
+        set_wrapped_text(self.title, metadata.title or "(no title)", 650)
         values = {"Author": ", ".join(metadata.authors), "ISBN": metadata.isbn, "Publisher": metadata.publisher,
                   "Published": metadata.published, "Language": metadata.language}
         for name, value in values.items():
@@ -81,9 +80,8 @@ class BookCard(wx.Panel):
     def _show_description(self, description):
         short = description if len(description) <= self.DESCRIPTION_LENGTH else (
                 description[:self.DESCRIPTION_LENGTH].rsplit(" ", 1)[0] + " ...")
-        self.description.SetLabel(short)
+        set_wrapped_text(self.description, short, 650)
         self.description.SetToolTip(description or None)
-        self.description.Wrap(650)
 
     def _show_cover(self, cover_image):
         try:
@@ -133,7 +131,7 @@ class ChapterListPanel(wx.Panel):
         self.show_short_files_checkbox = wx.CheckBox(self, label="Show short and empty files (cover, title page ...)")
         self.show_short_files_checkbox.Bind(wx.EVT_CHECKBOX, lambda event: self.redraw())
 
-        self.table = wx.ListCtrl(self, style=wx.LC_REPORT | wx.BORDER_SUNKEN)
+        self.table = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.BORDER_SUNKEN)  # one row at a time
         self.table.SetMinSize((250, 200))  # otherwise the sum of the column widths becomes the minimum width
         for column, name, width in [(self.COLUMN_READ, "Read", 45), (self.COLUMN_TITLE, "Title", 260),
                                     (self.COLUMN_LENGTH, "Characters", 75), (self.COLUMN_WHY, "Why", 120),
@@ -233,7 +231,11 @@ class ChapterListPanel(wx.Panel):
 # =============================================================================================
 
 class TextPreviewPanel(wx.Panel):
-    """The text of the selected section. Lines that came from picture text are shown in yellow."""
+    """
+    The text of the selected section. Lines that came from picture text are shown in yellow.
+    Right-click opens a menu: read the highlighted text aloud, stop reading, and the usual
+    cut / copy / paste / select all (the text can be edited before the audiobook is made).
+    """
 
     HIGHLIGHT = wx.TextAttr(wx.BLACK, wx.Colour(255, 228, 130))  # black text on yellow
 
@@ -244,7 +246,10 @@ class TextPreviewPanel(wx.Panel):
 
         self.heading = bold(wx.StaticText(self, label="Text to be read aloud"))
         self.file_label = wx.StaticText(self, label="Select a section on the left. You can edit the text here.")
-        self.text_area = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_WORDWRAP | wx.TE_RICH2)  # RICH2: colours
+        self.hint = wx.StaticText(self, label="Tip: highlight some text and right-click to hear it.")
+        # RICH2: allows colours. NOHIDESEL: a highlighted line stays visible when the focus is elsewhere.
+        self.text_area = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_WORDWRAP | wx.TE_RICH2 | wx.TE_NOHIDESEL)
+        self.text_area.Bind(wx.EVT_CONTEXT_MENU, self.on_context_menu)
         self.text_area.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.text_area.Bind(wx.EVT_TEXT, self.on_text_edited)
 
@@ -255,6 +260,7 @@ class TextPreviewPanel(wx.Panel):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.heading, 0, wx.LEFT | wx.TOP, SPACING)
         sizer.Add(self.file_label, 0, wx.LEFT, SPACING)
+        sizer.Add(self.hint, 0, wx.LEFT, SPACING)
         sizer.Add(self.legend, 0, wx.LEFT | wx.TOP, SPACING)
         sizer.Add(self.text_area, 1, wx.ALL | wx.EXPAND, SPACING)
         self.SetSizer(sizer)
@@ -267,7 +273,7 @@ class TextPreviewPanel(wx.Panel):
         self.text_area.ChangeValue(section.chapter.extracted_text)  # ChangeValue does not fire EVT_TEXT
         count = self.highlight_lines(section.chapter, set(highlighted_classes))
         self.legend.SetLabel(f" {count} yellow line(s): text found next to pictures. "
-                             "Remove it with tool 6 on the left. ")
+                             "Jump to it or remove it with tool 4 on the left. ")
         self.legend.Show(count > 0)
         self.Layout()
 
@@ -288,6 +294,37 @@ class TextPreviewPanel(wx.Panel):
     def selected_text(self):
         """The text the user highlighted with the mouse, or "" if nothing is highlighted."""
         return self.text_area.GetStringSelection()
+
+    def reveal_line(self, line_number):
+        """Scroll to line `line_number` of the shown text and highlight it (used to jump to picture text)."""
+        lines = self.text_area.GetValue().split("\n")
+        if not 0 <= line_number < len(lines):
+            return
+        start = sum(len(line) + 1 for line in lines[:line_number])  # +1 for each newline
+        self.text_area.SetSelection(start, start + len(lines[line_number]))
+        self.text_area.ShowPosition(start)
+
+    # ---- right-click menu ----------------------------------------------------------------------
+
+    def on_context_menu(self, event):
+        selected = self.selected_text().strip()
+        menu = wx.Menu()
+        read = menu.Append(wx.ID_ANY, "🔊 Read the selected text aloud" if selected
+                           else "🔊 Read aloud (highlight some text first)")
+        read.Enable(bool(selected))
+        stop = menu.Append(wx.ID_ANY, "⏹ Stop reading")
+        menu.AppendSeparator()
+        editing = [(wx.ID_CUT, self.text_area.CanCut(), self.text_area.Cut),
+                   (wx.ID_COPY, self.text_area.CanCopy(), self.text_area.Copy),
+                   (wx.ID_PASTE, self.text_area.CanPaste(), self.text_area.Paste),
+                   (wx.ID_SELECTALL, True, self.text_area.SelectAll)]
+        for item_id, possible, action in editing:
+            menu.Append(item_id).Enable(possible)  # standard items: Windows provides label and shortcut
+            menu.Bind(wx.EVT_MENU, lambda event, action=action: action(), id=item_id)
+        menu.Bind(wx.EVT_MENU, lambda event: self.main_window.read_aloud(selected), read)
+        menu.Bind(wx.EVT_MENU, lambda event: self.main_window.stop_reading(), stop)
+        self.text_area.PopupMenu(menu)
+        menu.Destroy()
 
     def on_text_edited(self, event):
         """Edits go straight into the text that will be read aloud."""

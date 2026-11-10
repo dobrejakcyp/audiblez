@@ -14,6 +14,19 @@ def bold(control, size_change=0):
     return control
 
 
+def set_wrapped_text(label, text, width):
+    """
+    Put `text` in a wx.StaticText and wrap it to `width` pixels.
+    Why not just SetLabel() + Wrap()? A label that was wrapped once remembers that width and ignores
+    the next Wrap() with the same width, even after SetLabel() put in new, unwrapped text, so the new
+    text would stay one long, cut-off line. Wrap(-1) makes it forget the old width first.
+    """
+    label.Wrap(-1)
+    label.SetLabel(text)
+    label.Wrap(width)
+    label.InvalidateBestSize()  # so the layout asks for the new number of lines
+
+
 def describe_audio_length(characters):
     hours = characters / CHARACTERS_PER_AUDIO_MINUTE / 60
     return f"{characters:,} characters (about {hours:.1f} hours of audio)"

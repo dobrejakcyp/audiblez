@@ -14,6 +14,37 @@ from bs4 import BeautifulSoup
 # A 13-digit ISBN (starts with 978 or 979) or a 10-digit one (the last character may be X).
 ISBN_PATTERN = re.compile(r"97[89]\d{10}|\d{9}[\dX]")
 
+# ---- file names --------------------------------------------------------------------------------
+# Characters Windows does not allow in file names (and invisible control characters).
+FORBIDDEN_IN_FILE_NAMES = re.compile(r'[<>"/\\|?*\x00-\x1f]')
+# Names Windows reserves for devices; "CON.m4b" cannot be created.
+RESERVED_FILE_NAMES = {"CON", "PRN", "AUX", "NUL", *(f"COM{n}" for n in range(1, 10)), *(f"LPT{n}" for n in range(1, 10))}
+LONGEST_FILE_NAME = 150  # characters, without the extension; leaves room for the folder path
+
+
+def safe_file_name(text):
+    """
+    Turn any text into a file name that works on Windows, macOS and Linux.
+    "Sapiens: A Brief History" -> "Sapiens - A Brief History". Returns "" if nothing usable is left.
+    """
+    name = text.replace(":", " -")
+    name = FORBIDDEN_IN_FILE_NAMES.sub("-", name)
+    name = " ".join(name.split())  # no line breaks, tabs or double spaces
+    name = name[:LONGEST_FILE_NAME].strip(" .")  # Windows also refuses names that end with a dot or space
+    if name.upper() in RESERVED_FILE_NAMES:
+        name += "_"
+    return name
+
+
+def audiobook_file_name(title, authors, fallback):
+    """
+    The name for the audiobook file, without extension: "Author - Title" from the book's details.
+    Uses `fallback` (normally the EPUB's own file name) when the book has no title.
+    """
+    author = authors[0] if authors else ""
+    name = safe_file_name(f"{author} - {title}" if author and title else title)
+    return name or safe_file_name(fallback) or "audiobook"
+
 
 @dataclass
 class BookLink:
@@ -93,6 +124,10 @@ class BookMetadata:
             links.append(BookLink("Goodreads (ratings and reviews)",
                                   "https://www.goodreads.com/search?q=" + quote_plus(goodreads_query)))
         return links
+
+    def audiobook_file_name(self, fallback):
+        """See audiobook_file_name() at the top of this module."""
+        return audiobook_file_name(self.title, self.authors, fallback)
 
     def _wikipedia_language(self):
         """Use the Wikipedia in the book's own language ("nl" -> nl.wikipedia.org); English if unknown."""

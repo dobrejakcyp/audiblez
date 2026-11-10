@@ -1,15 +1,17 @@
 """
 ui_tool_column.py - the column of tools on the far left of the window.
 
-The sections are in the order you use them:
+The column has two parts:
 
-    1. Book file          open an EPUB, choose where the audiobook is saved
-    2. Voice              language, model, voice (with an instant sample), CPU or GPU
-    3. Speed              slider and a number box, kept in sync
-    4. Preview            read a piece of the text aloud with the chosen voice
-    5. Create audiobook   start button, progress bar, time remaining
-    6. Picture text       captions and photo credits found next to pictures; tick them to remove them
+    scrolling part (new tools go here, in the order you use them)
+        1. Book file          open an EPUB, choose where the audiobook is saved
+        2. Voice              language, model, voice (with an instant sample), CPU or GPU
+        3. Speed              slider and a number box, kept in sync
+        4. Picture text       captions and photo credits found next to pictures: jump to them, remove them
+    fixed at the bottom (always visible)
+        Create audiobook      file name, start/stop button, progress bar, time remaining
 
+To hear a piece of the book, highlight it in the text column and right-click (see ui_book_panels.py).
 Every section is a ToolSection: a titled box with its controls stacked inside.
 Buttons call methods of MainWindow (in ui.py); the sections never talk to each other.
 """
@@ -23,7 +25,7 @@ import torch.cuda
 import wx
 from wx.lib.scrolledpanel import ScrolledPanel
 
-from audiblez.ui_common import SPACING, bold
+from audiblez.ui_common import SPACING, bold, set_wrapped_text
 from audiblez.voice_library import LANGUAGES, MODEL_NAME, Voice, all_voices, voices_of
 
 DEFAULT_VOICE = Voice("bm_george")
@@ -61,6 +63,20 @@ class ToolSection(wx.Panel):
 
     def finish(self):
         self.box_sizer.AddSpacer(SPACING)
+
+    WRAP_WIDTH = 240  # pixels; a little narrower than the inside of a section, so wrapped text is never cut off
+
+    def show_text(self, label, text):
+        """Put a (possibly long) text in a label: wrap it to the column and make room for all of its lines."""
+        set_wrapped_text(label, text, self.WRAP_WIDTH)
+        self.relayout()
+
+    def relayout(self):
+        """Re-arrange after controls were shown or hidden. A scroll area must also learn its new height."""
+        parent = self.GetParent()
+        parent.Layout()
+        if isinstance(parent, ScrolledPanel):
+            parent.FitInside()
 
 
 # =============================================================================================
@@ -213,27 +229,11 @@ class SpeedSection(ToolSection):
 
 # =============================================================================================
 
-class PreviewSection(ToolSection):
-    def __init__(self, parent, main_window):
-        super().__init__(parent, "4. Preview")
-        self.preview_button = self.add(wx.Button(self.box, label="🔊 Read aloud"))
-        self.preview_button.Bind(wx.EVT_BUTTON, main_window.on_preview)
-        hint = self.add(wx.StaticText(self.box, label="Reads the text you highlighted, or the first lines "
-                                                       "of the selected section, with the voice and speed above."))
-        hint.Wrap(250)
-        self.finish()
-
-    def show_running(self, running):
-        self.preview_button.SetLabel("⏳ Preparing..." if running else "🔊 Read aloud")
-        self.preview_button.Enable(not running)
-
-
-# =============================================================================================
-
 class CreateSection(ToolSection):
     def __init__(self, parent, main_window):
-        super().__init__(parent, "5. Create audiobook")
+        super().__init__(parent, "Create audiobook")
         self.summary = self.add(wx.StaticText(self.box, label="Open a book first."))
+        self.file_name = self.add(wx.StaticText(self.box, label="", style=wx.ST_ELLIPSIZE_MIDDLE))
         self.start_button = self.add(wx.Button(self.box, label="🚀 Create audiobook"))
         self.start_button.Bind(wx.EVT_BUTTON, main_window.on_start)
         self.stop_button = self.add(wx.Button(self.box, label="⏹ Stop"))
@@ -246,9 +246,10 @@ class CreateSection(ToolSection):
         self.stop_button.Hide()
         self.finish()
 
-    def show_summary(self, text):
-        self.summary.SetLabel(text)
-        self.summary.Wrap(250)
+    def show_summary(self, text, file_name):
+        self.file_name.SetLabel(f"Saves as: {file_name}")
+        self.file_name.SetToolTip(file_name)
+        self.show_text(self.summary, text)
 
     def show_started(self):
         self.gauge.SetValue(0)
@@ -258,7 +259,7 @@ class CreateSection(ToolSection):
         self.stop_button.Enable()
         self.stop_button.Show()
         self.time_left.SetLabel("Starting...")
-        self.GetParent().Layout()
+        self.relayout()
 
     def show_stopping(self):
         self.stop_button.SetLabel("⏳ Stopping after this sentence...")
@@ -281,7 +282,7 @@ class CreateSection(ToolSection):
         self.time_left.SetLabel(self.FINISHED_MESSAGES[outcome])
         self.stop_button.Hide()
         self.start_button.Show()
-        self.GetParent().Layout()
+        self.relayout()
 
 
 # =============================================================================================
@@ -289,95 +290,144 @@ class CreateSection(ToolSection):
 class PictureTextSection(ToolSection):
     """
     Shows the kinds of text that picture_text_detector.py found next to pictures (captions,
-    photo credits). Tick the kinds you do not want to hear and press the button: they are removed
-    from the whole book. Untick a kind and press the button again to bring it back.
+    photo credits).
+      - Previous / Next jump to every place where the selected kind occurs, chapter by chapter.
+      - Tick the kinds you do not want to hear and press the button: they are removed from the
+        whole book. Untick a kind and press the button again to bring it back.
     """
 
     def __init__(self, parent, main_window):
-        super().__init__(parent, "6. Picture text")
+        super().__init__(parent, "4. Picture text")
+        self.main_window = main_window
         self.groups = []
+        self.removed_classes = []
+        self.lines = []  # (section, line number) of every occurrence of the selected kind
+        self.position = -1  # index in self.lines of the occurrence shown last; -1 = none yet
         self.message = self.add(wx.StaticText(self.box, label="Open a book to look for picture captions and credits."))
         self.group_list = self.add(wx.CheckListBox(self.box, size=(-1, 75)))
-        self.group_list.Bind(wx.EVT_LISTBOX, lambda event: self.show_sample(event.GetSelection()))
+        self.group_list.Bind(wx.EVT_LISTBOX, lambda event: self.select_kind(event.GetSelection()))
         self.sample = self.add(wx.StaticText(self.box, label=""))
+        self.previous_button = wx.Button(self.box, label="◀ Previous")
+        self.position_label = wx.StaticText(self.box, label="", style=wx.ALIGN_CENTRE_HORIZONTAL)
+        self.next_button = wx.Button(self.box, label="Next ▶")
+        self.previous_button.Bind(wx.EVT_BUTTON, lambda event: self.step(-1))
+        self.next_button.Bind(wx.EVT_BUTTON, lambda event: self.step(+1))
+        self.previous_button.SetToolTip("Show the previous place where this kind of text occurs")
+        self.next_button.SetToolTip("Show the next place where this kind of text occurs")
+        self.add_row((self.previous_button, 0), (self.position_label, 1), (self.next_button, 0))
         self.apply_button = self.add(wx.Button(self.box, label="✂ Remove the ticked kinds"))
         self.apply_button.SetToolTip("Ticked kinds are removed from the whole book. "
                                      "Untick a kind and press again to bring it back.")
         self.apply_button.Bind(wx.EVT_BUTTON, main_window.on_apply_picture_text)
-        self.message.Wrap(250)
+        self.show_text(self.message, self.message.GetLabel())
         self.show_controls(False)
         self.finish()
 
     def show_controls(self, visible):
-        for control in (self.group_list, self.sample, self.apply_button):
+        for control in (self.group_list, self.sample, self.previous_button, self.position_label,
+                        self.next_button, self.apply_button):
             control.Show(visible)
-        self.GetParent().Layout()
+        self.relayout()
 
     def show_groups(self, groups, removed_classes):
         self.groups = groups
+        self.removed_classes = list(removed_classes)
         if not groups:
-            self.message.SetLabel("No text next to pictures was found in this book.")
+            self.show_text(self.message, "No text next to pictures was found in this book.")
             self.show_controls(False)
             return
-        self.message.SetLabel(f"Found {len(groups)} kind(s) of text next to pictures. Not yet removed parts "
-                              "are yellow in the text column. Tick what you do not want to hear:")
-        self.message.Wrap(250)
+        self.show_text(self.message, f"Found {len(groups)} kind(s) of text next to pictures. Not yet removed "
+                                     "parts are yellow in the text column. Tick what you do not want to hear:")
         self.group_list.Set([group.label for group in groups])
         for row, group in enumerate(groups):
             self.group_list.Check(row, group.css_class in removed_classes)
         self.group_list.SetSelection(0)
-        self.show_sample(0)
+        self.select_kind(0)
         self.show_controls(True)
+
+    def select_kind(self, row):
+        """A kind was picked in the list: show an example and get ready to jump through its occurrences."""
+        self.show_sample(row)
+        self.lines = self.main_window.find_picture_text_lines(self.groups[row].css_class)
+        self.position = -1
+        self.update_position_label()
+
+    def step(self, direction):
+        """Jump to the next (+1) or previous (-1) occurrence; after the last one it starts again."""
+        if not self.lines:
+            return
+        self.position = (self.position + direction) % len(self.lines)
+        section, line_number = self.lines[self.position]
+        self.main_window.show_picture_text_line(section, line_number)
+        self.update_position_label()
+
+    def update_position_label(self):
+        row = self.group_list.GetSelection()
+        removed = 0 <= row < len(self.groups) and self.groups[row].css_class in self.removed_classes
+        if not self.lines:
+            text = "removed from the book" if removed else "none in the text"
+        elif self.position < 0:
+            text = f"{len(self.lines)} in the text"
+        else:
+            text = f"{self.position + 1} of {len(self.lines)}"
+        self.position_label.SetLabel(text)
+        self.previous_button.Enable(bool(self.lines))
+        self.next_button.Enable(bool(self.lines))
+        self.relayout()
 
     def show_sample(self, row):
         if 0 <= row < len(self.groups):
             group = self.groups[row]
             sample = group.samples[0] if group.samples else ""
-            self.sample.SetLabel(f'e.g. "{sample}"\n{group.near_picture_count} of {group.total_count} are next '
-                                 f'to a picture, {group.characters:,} characters in total.')
-            self.sample.Wrap(250)
-            self.GetParent().Layout()
+            self.show_text(self.sample, f'e.g. "{sample}"\n{group.near_picture_count} of {group.total_count} '
+                                        f'are next to a picture, {group.characters:,} characters in total.')
 
     def ticked_classes(self):
         return [group.css_class for row, group in enumerate(self.groups) if self.group_list.IsChecked(row)]
 
 
-class ToolColumn(ScrolledPanel):
-    """All tool sections stacked on top of each other; scrolls if the window is too short."""
+class ToolColumn(wx.Panel):
+    """
+    The column on the left, in two parts:
+      - scroll_area: the tool sections, stacked; it scrolls when the window is too short.
+        New tools are added here.
+      - create_section: "Create audiobook", fixed at the bottom so it is always visible.
+    """
 
     WIDTH = 290
 
     def __init__(self, parent, main_window):
         super().__init__(parent, size=(self.WIDTH, -1))
         self.SetMinSize((self.WIDTH, -1))
-        self.file_section = FileSection(self, main_window)
-        self.voice_section = VoiceSection(self, main_window)
-        self.speed_section = SpeedSection(self)
-        self.preview_section = PreviewSection(self, main_window)
+
+        self.scroll_area = ScrolledPanel(self)
+        self.file_section = FileSection(self.scroll_area, main_window)
+        self.voice_section = VoiceSection(self.scroll_area, main_window)
+        self.speed_section = SpeedSection(self.scroll_area)
+        self.picture_text_section = PictureTextSection(self.scroll_area, main_window)
+        self.tool_sections = (self.file_section, self.voice_section, self.speed_section, self.picture_text_section)
+        scroll_sizer = wx.BoxSizer(wx.VERTICAL)
+        for section in self.tool_sections:
+            scroll_sizer.Add(section, 0, wx.EXPAND | wx.ALL, SPACING)
+        self.scroll_area.SetSizer(scroll_sizer)
+        self.scroll_area.SetupScrolling(scroll_x=False)
+
         self.create_section = CreateSection(self, main_window)
-        self.picture_text_section = PictureTextSection(self, main_window)
-        about_button = wx.Button(self, label="ℹ️ About")
-        about_button.Bind(wx.EVT_BUTTON, main_window.on_about)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
-        for section in (self.file_section, self.voice_section, self.speed_section,
-                        self.preview_section, self.create_section, self.picture_text_section):
-            sizer.Add(section, 0, wx.EXPAND | wx.ALL, SPACING)
-        sizer.AddStretchSpacer()
-        sizer.Add(about_button, 0, wx.ALL, SPACING)
+        sizer.Add(self.scroll_area, 1, wx.EXPAND)
+        sizer.Add(wx.StaticLine(self), 0, wx.EXPAND | wx.LEFT | wx.RIGHT, SPACING)
+        sizer.Add(self.create_section, 0, wx.EXPAND | wx.ALL, SPACING)
         self.SetSizer(sizer)
-        self.SetupScrolling(scroll_x=False)
         self.set_book_actions_enabled(False)
 
     def set_book_actions_enabled(self, enabled):
-        """Preview and Create only make sense once a book is open."""
-        self.preview_section.preview_button.Enable(enabled)
+        """Creating an audiobook only makes sense once a book is open."""
         self.create_section.start_button.Enable(enabled)
 
     def set_locked_for_generation(self, locked):
         """While an audiobook is being made, settings must not change and no other book may be opened."""
-        for section in (self.file_section, self.voice_section, self.speed_section, self.preview_section,
-                        self.picture_text_section):
+        for section in self.tool_sections:
             section.Enable(not locked)
         self.create_section.start_button.Enable(not locked)
 

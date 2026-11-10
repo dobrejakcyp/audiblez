@@ -33,7 +33,7 @@ from kokoro import KPipeline
 from ebooklib import epub
 from pick import pick
 
-from audiblez.book_metadata import find_cover
+from audiblez.book_metadata import audiobook_file_name, find_cover
 from audiblez.chapter_selection import find_good_chapters
 from audiblez.epub_text_extractor import CleaningReport, EpubTextExtractor
 
@@ -113,14 +113,17 @@ def convert(file_path, voice, pick_manually, speed, output_folder, max_chapters,
     output_folder = Path(output_folder).resolve()  # relative paths break ffmpeg concat (issue #133)
     output_folder.mkdir(parents=True, exist_ok=True)
 
-    filename = Path(file_path).name
-
     extension = '.epub'
     book = epub.read_epub(file_path)
     meta_title = book.get_metadata('DC', 'title')
     title = meta_title[0][0] if meta_title else ''
     meta_creator = book.get_metadata('DC', 'creator')
     creator = meta_creator[0][0] if meta_creator else ''
+
+    # The audiobook is named "Author - Title.m4b" from the book's details, not after the EPUB file
+    # (see book_metadata.audiobook_file_name). `filename` keeps the form "<name>.epub" because the
+    # functions below derive the names of the .wav, .txt and .m4b files from it.
+    filename = audiobook_file_name(title, [creator] if creator else [], fallback=Path(file_path).stem) + extension
 
     cover_maybe = find_cover(book)
     cover_image = cover_maybe.get_content() if cover_maybe else b""
