@@ -275,7 +275,8 @@ class MainWindow(wx.Frame):
         self.splitter.SetSashPosition(self.splitter.GetClientSize().width // 2)
 
     def on_about(self, event):
-        message = ("Audiblez - generate audiobooks from EPUB files with the Kokoro-82M voice model.\n\n"
+        from audiblez import __version__
+        message = (f"Audiblez {__version__} - generate audiobooks from EPUB files with the Kokoro-82M voice model.\n\n"
                    f"Original author and maintainer:\n    {ORIGINAL_AUTHOR}\n\n"
                    f"This fork (github.com/dobrejakcyp/audiblez) is maintained by:\n    {CURRENT_MAINTAINER}\n\n"
                    "Distributed under the MIT License.")

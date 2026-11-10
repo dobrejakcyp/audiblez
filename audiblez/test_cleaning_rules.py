@@ -226,6 +226,16 @@ def test_every_extracted_line_remembers_where_it_came_from():
     assert kinds == [("h2", ("chtit",)), ("p", ("indent",)), ("p", ("capl0",))], kinds
 
 
+def test_version_is_the_same_in_the_package_and_in_pyproject():
+    import tomllib
+    from pathlib import Path
+    from audiblez import __version__
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    with open(pyproject, "rb") as file:
+        packaging_version = tomllib.load(file)["project"]["version"]
+    assert __version__ == packaging_version, f"audiblez/__init__.py says {__version__}, pyproject.toml says {packaging_version}"
+
+
 def test_combined_report_adds_up_chapter_reports():
     from audiblez.epub_text_extractor import CleaningReport
     _, first = read_aloud('<p class="note">aaaa</p>')

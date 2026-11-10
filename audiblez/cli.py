@@ -9,6 +9,7 @@ Command line of audiblez. Run it from the project folder (C:\\Users\\lukas\\audi
 import argparse
 import sys
 
+from audiblez import __version__
 from audiblez.chapter_selection import find_good_chapters
 from audiblez.epub_text_extractor import CleaningReport, EpubTextExtractor
 from audiblez.voices import voices, available_voices_str
@@ -24,6 +25,7 @@ def build_argument_parser():
               available_voices_str)
     default_voice = 'bm_george'
     parser = argparse.ArgumentParser(epilog=epilog, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--version', action='version', version=f'audiblez {__version__}')
     parser.add_argument('epub_file_path', help='Path to the epub file')
     parser.add_argument('-v', '--voice', default=default_voice, help=f'Choose narrating voice: {voices_str}')
     parser.add_argument('-p', '--pick', default=False, help=f'Interactively select which chapters to read in the audiobook', action='store_true')
