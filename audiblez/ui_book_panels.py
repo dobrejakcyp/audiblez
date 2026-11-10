@@ -97,10 +97,13 @@ class BookCard(wx.Panel):
         self.cover.Show()
 
     def _show_links(self, links):
+        """One button per link; it opens the address in the default browser (the address is in the tooltip)."""
         self.links_sizer.Clear(delete_windows=True)
         for link in links:
-            # A HyperlinkCtrl opens the address in the default browser when clicked
-            self.links_sizer.Add(wx.adv.HyperlinkCtrl(self.box, label=link.label, url=link.url), 0, wx.BOTTOM, 2)
+            button = wx.Button(self.box, label=f"{link.label}  ↗")
+            button.SetToolTip(link.url)
+            button.Bind(wx.EVT_BUTTON, lambda event, url=link.url: wx.LaunchDefaultBrowser(url))
+            self.links_sizer.Add(button, 0, wx.EXPAND | wx.BOTTOM, 3)
         self.links_heading.Show(bool(links))
 
 
@@ -143,12 +146,23 @@ class ChapterListPanel(wx.Panel):
         self.table.Bind(wx.EVT_LIST_ITEM_UNCHECKED, lambda event: self.set_included(event.GetIndex(), False))
         self.table.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_row_selected)
 
+        # The header has its own sizer, so MainWindow can give it the same height as the text column's
+        # header: then the list and the text start at the same line (see set_header_height).
+        self.header_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.header_sizer.Add(heading, 0, wx.LEFT | wx.TOP, SPACING)
+        self.header_sizer.Add(explanation, 0, wx.LEFT, SPACING)
+        self.header_sizer.Add(self.show_short_files_checkbox, 0, wx.LEFT | wx.TOP, SPACING)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(heading, 0, wx.LEFT | wx.TOP, SPACING)
-        sizer.Add(explanation, 0, wx.LEFT, SPACING)
-        sizer.Add(self.show_short_files_checkbox, 0, wx.LEFT | wx.TOP, SPACING)
+        sizer.Add(self.header_sizer, 0, wx.EXPAND)
         sizer.Add(self.table, 1, wx.ALL | wx.EXPAND, SPACING)
         self.SetSizer(sizer)
+
+    def header_height(self):
+        return self.header_sizer.CalcMin().height
+
+    def set_header_height(self, height):
+        self.header_sizer.SetMinSize((-1, height))
+        self.Layout()
 
     # ---- filling the table -------------------------------------------------------------------
 
@@ -238,32 +252,56 @@ class TextPreviewPanel(wx.Panel):
     """
 
     HIGHLIGHT = wx.TextAttr(wx.BLACK, wx.Colour(255, 228, 130))  # black text on yellow
+    TIP = "Tip: highlight some text and right-click to hear it."
 
     def __init__(self, parent, main_window):
         super().__init__(parent)
         self.main_window = main_window
         self.section = None
 
-        self.heading = bold(wx.StaticText(self, label="Text to be read aloud"))
-        self.file_label = wx.StaticText(self, label="Select a section on the left. You can edit the text here.")
-        self.hint = wx.StaticText(self, label="Tip: highlight some text and right-click to hear it.")
+        # The header always has exactly three one-line rows, so the text below never jumps up or down:
+        # long titles and file names get "..." instead of a second line (ST_ELLIPSIZE_...).
+        self.heading = bold(wx.StaticText(self, label="Text to be read aloud", style=wx.ST_ELLIPSIZE_END))
+        self.file_label = wx.StaticText(self, label="Select a section on the left. You can edit the text here.",
+                                        style=wx.ST_ELLIPSIZE_MIDDLE)
+        # Third row: the yellow "N yellow lines" note when this section has picture text, otherwise the tip
+        self.note = wx.StaticText(self, label=self.TIP, style=wx.ST_ELLIPSIZE_END)
+        for label in (self.heading, self.file_label, self.note):
+            label.SetMinSize((50, -1))  # may become narrow; "..." takes care of the rest
         # RICH2: allows colours. NOHIDESEL: a highlighted line stays visible when the focus is elsewhere.
         self.text_area = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_WORDWRAP | wx.TE_RICH2 | wx.TE_NOHIDESEL)
         self.text_area.Bind(wx.EVT_CONTEXT_MENU, self.on_context_menu)
         self.text_area.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.text_area.Bind(wx.EVT_TEXT, self.on_text_edited)
 
-        self.legend = wx.StaticText(self, label="")
-        self.legend.SetBackgroundColour(self.HIGHLIGHT.GetBackgroundColour())
-        self.legend.SetForegroundColour(wx.BLACK)
-
+        self.header_sizer = wx.BoxSizer(wx.VERTICAL)  # see ChapterListPanel.header_sizer
+        self.header_sizer.Add(self.heading, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, SPACING)
+        self.header_sizer.Add(self.file_label, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, SPACING)
+        self.header_sizer.Add(self.note, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, SPACING)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self.heading, 0, wx.LEFT | wx.TOP, SPACING)
-        sizer.Add(self.file_label, 0, wx.LEFT, SPACING)
-        sizer.Add(self.hint, 0, wx.LEFT, SPACING)
-        sizer.Add(self.legend, 0, wx.LEFT | wx.TOP, SPACING)
+        sizer.Add(self.header_sizer, 0, wx.EXPAND)
         sizer.Add(self.text_area, 1, wx.ALL | wx.EXPAND, SPACING)
         self.SetSizer(sizer)
+
+    def header_height(self):
+        return self.header_sizer.CalcMin().height
+
+    def set_header_height(self, height):
+        self.header_sizer.SetMinSize((-1, height))
+        self.Layout()
+
+    def show_note(self, yellow_lines):
+        """The third header row: the yellow note if this section has picture text, otherwise the tip."""
+        if yellow_lines:
+            self.note.SetLabel(f"{yellow_lines} yellow line(s): text found next to pictures. "
+                               "Jump to it or remove it with tool 4 on the left.")
+            self.note.SetBackgroundColour(self.HIGHLIGHT.GetBackgroundColour())
+            self.note.SetForegroundColour(wx.BLACK)
+        else:
+            self.note.SetLabel(self.TIP)
+            self.note.SetBackgroundColour(wx.NullColour)  # back to the normal window colours
+            self.note.SetForegroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT))
+        self.note.Refresh()
 
     def show_section(self, section, highlighted_classes=()):
         """Show the section's text; lines from elements with one of `highlighted_classes` turn yellow."""
@@ -271,11 +309,7 @@ class TextPreviewPanel(wx.Panel):
         self.heading.SetLabel(section.display_title)
         self.file_label.SetLabel(f"File: {section.file_name}   ({section.reason})")
         self.text_area.ChangeValue(section.chapter.extracted_text)  # ChangeValue does not fire EVT_TEXT
-        count = self.highlight_lines(section.chapter, set(highlighted_classes))
-        self.legend.SetLabel(f" {count} yellow line(s): text found next to pictures. "
-                             "Jump to it or remove it with tool 4 on the left. ")
-        self.legend.Show(count > 0)
-        self.Layout()
+        self.show_note(self.highlight_lines(section.chapter, set(highlighted_classes)))
 
     def highlight_lines(self, chapter, css_classes):
         """Colour every line whose element had one of `css_classes`. Returns how many lines were coloured."""

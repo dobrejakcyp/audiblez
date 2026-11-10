@@ -215,11 +215,14 @@ class MainWindow(wx.Frame):
             self.Centre()
         if self.settings.window_maximized:
             self.Maximize()
+        if self.settings.tool_column_width >= ToolColumn.NARROWEST:
+            wx.CallAfter(self.outer_splitter.SetSashPosition, self.settings.tool_column_width)
 
     def save_settings(self):
         self.tools.store_settings(self.settings)
         self.settings.show_short_files = self.chapter_list.show_short_files_checkbox.GetValue()
         self.settings.window_maximized = self.IsMaximized()
+        self.settings.tool_column_width = self.outer_splitter.GetSashPosition()
         if not self.IsMaximized() and not self.IsIconized():  # remember the normal size, not the maximized one
             self.settings.window_size = list(self.GetSize())
             self.settings.window_position = list(self.GetPosition())
@@ -256,9 +259,11 @@ class MainWindow(wx.Frame):
 
     def create_layout(self):
         root = wx.Panel(self)
-        self.tools = ToolColumn(root, self)
+        # Tool column | everything else, with a divider you can drag to make the tool column wider
+        self.outer_splitter = wx.SplitterWindow(root, style=wx.SP_LIVE_UPDATE | wx.SP_3DSASH)
+        self.tools = ToolColumn(self.outer_splitter, self)
 
-        right_side = wx.Panel(root)
+        right_side = wx.Panel(self.outer_splitter)
         self.book_card = BookCard(right_side)
         self.splitter = wx.SplitterWindow(right_side, style=wx.SP_LIVE_UPDATE | wx.SP_3DSASH)
         self.chapter_list = ChapterListPanel(self.splitter, self)
@@ -272,12 +277,19 @@ class MainWindow(wx.Frame):
         right_sizer.Add(self.splitter, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, SPACING)
         right_side.SetSizer(right_sizer)
 
+        self.outer_splitter.SplitVertically(self.tools, right_side, ToolColumn.WIDTH)
+        self.outer_splitter.SetSashGravity(0)  # when the window grows, only the right side grows
+        self.outer_splitter.SetMinimumPaneSize(ToolColumn.NARROWEST)
+
         root_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        root_sizer.Add(self.tools, 0, wx.EXPAND)
-        root_sizer.Add(wx.StaticLine(root, style=wx.LI_VERTICAL), 0, wx.EXPAND | wx.TOP | wx.BOTTOM, SPACING)
-        root_sizer.Add(right_side, 1, wx.EXPAND)
+        root_sizer.Add(self.outer_splitter, 1, wx.EXPAND)
         root.SetSizer(root_sizer)
         self.root = root
+
+        # The list and the text start at the same line: give both column headers the same height
+        header_height = max(self.chapter_list.header_height(), self.text_preview.header_height())
+        self.chapter_list.set_header_height(header_height)
+        self.text_preview.set_header_height(header_height)
 
     def put_divider_in_the_middle(self):
         self.splitter.SetSashPosition(self.splitter.GetClientSize().width // 2)

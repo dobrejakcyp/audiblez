@@ -36,6 +36,8 @@ class ToolSection(wx.Panel):
 
     def __init__(self, parent, title):
         super().__init__(parent)
+        self.wrapped_texts = {}  # label -> its full text, so it can be wrapped again when the column width changes
+        self.wrap_width = self.WRAP_WIDTH
         self.box_sizer = wx.StaticBoxSizer(wx.VERTICAL, self, title)
         self.box = self.box_sizer.GetStaticBox()  # controls must be children of the box, not of the panel
         self.SetSizer(self.box_sizer)
@@ -64,11 +66,21 @@ class ToolSection(wx.Panel):
     def finish(self):
         self.box_sizer.AddSpacer(SPACING)
 
-    WRAP_WIDTH = 240  # pixels; a little narrower than the inside of a section, so wrapped text is never cut off
+    WRAP_WIDTH = 240  # pixels at the default column width; changes when the column is resized (see rewrap)
 
     def show_text(self, label, text):
         """Put a (possibly long) text in a label: wrap it to the column and make room for all of its lines."""
-        set_wrapped_text(label, text, self.WRAP_WIDTH)
+        self.wrapped_texts[label] = text
+        set_wrapped_text(label, text, self.wrap_width)
+        self.relayout()
+
+    def rewrap(self, width):
+        """The column got wider or narrower: wrap every long text again to the new width."""
+        if width == self.wrap_width:
+            return
+        self.wrap_width = width
+        for label, text in self.wrapped_texts.items():
+            set_wrapped_text(label, text, width)
         self.relayout()
 
     def relayout(self):
@@ -392,13 +404,17 @@ class ToolColumn(wx.Panel):
       - scroll_area: the tool sections, stacked; it scrolls when the window is too short.
         New tools are added here.
       - create_section: "Create audiobook", fixed at the bottom so it is always visible.
+    Its width can be changed by dragging the divider next to it (see MainWindow.create_layout);
+    long texts are then wrapped again to the new width.
     """
 
-    WIDTH = 290
+    WIDTH = 290  # default width in pixels
+    NARROWEST = 240
+    SPACE_AROUND_TEXT = 50  # section borders, margins and the scroll bar: text width = column width - this
 
     def __init__(self, parent, main_window):
         super().__init__(parent, size=(self.WIDTH, -1))
-        self.SetMinSize((self.WIDTH, -1))
+        self.Bind(wx.EVT_SIZE, self.on_resized)
 
         self.scroll_area = ScrolledPanel(self)
         self.file_section = FileSection(self.scroll_area, main_window)
@@ -420,6 +436,12 @@ class ToolColumn(wx.Panel):
         sizer.Add(self.create_section, 0, wx.EXPAND | wx.ALL, SPACING)
         self.SetSizer(sizer)
         self.set_book_actions_enabled(False)
+
+    def on_resized(self, event):
+        event.Skip()  # let wx do the normal layout as well
+        text_width = max(120, self.GetClientSize().width - self.SPACE_AROUND_TEXT)
+        for section in (*self.tool_sections, self.create_section):
+            section.rewrap(text_width)
 
     def set_book_actions_enabled(self, enabled):
         """Creating an audiobook only makes sense once a book is open."""

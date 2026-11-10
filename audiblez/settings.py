@@ -27,6 +27,7 @@ class UserSettings:
     window_size: list = field(default_factory=list)  # [width, height]; empty = choose automatically
     window_position: list = field(default_factory=list)  # [x, y]
     window_maximized: bool = False
+    tool_column_width: int = 0  # pixels; 0 = the default width
     picture_text_removed: dict = field(default_factory=dict)  # book file name -> CSS classes removed (tool 6)
 
     @classmethod
