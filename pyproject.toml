@@ -7,7 +7,7 @@ authors = [
     { name = "Lukáš Puška" }
 ]
 readme = "README.md"
-requires-python = ">=3.9,<3.13"
+requires-python = ">=3.10,<3.13"  # current PyTorch needs Python 3.10 or newer
 dependencies = [
     "ebooklib (>=0.18,<0.19)",
     "soundfile (>=0.13.1,<0.14.0)",
@@ -17,19 +17,16 @@ dependencies = [
     "kokoro (>=0.7.9,<0.8.0)",
     "misaki[zh] (>=0.7.10,<0.8.0)",
     "tabulate (>=0.9.0,<0.10.0)",
-]
-exclude = [
-    "imgs",
-    "test",
-    "*.wav",
-    "*.m4b",
-    "cover",
-    "chapters.txt"
+    # imported directly by this fork's code (before, they only arrived as dependencies of other packages)
+    "torch>=2.6",
+    "numpy",
+    "lxml",
+    "huggingface-hub",
 ]
 
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+[project.optional-dependencies]
+# The window (audiblez-ui). Optional because wxPython has no ready-made Linux packages on PyPI.
+gui = ["wxpython>=4.2", "pillow"]
 
 [project.urls]
 Homepage = "https://claudio.uk/posts/epub-to-audiobook.html"
@@ -41,5 +38,23 @@ Issues = "https://github.com/dobrejakcyp/audiblez/issues"
 audiblez = "audiblez.cli:cli_main"
 audiblez-ui = "audiblez.ui:main"
 
-[tool.poetry.group.dev.dependencies]
-deptry = "^0.23.0"
+[dependency-groups]
+dev = ["deptry>=0.23.0"]
+
+[build-system]
+requires = ["uv_build>=0.11.8,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""  # the package is audiblez/ at the top of the project, not under src/
+source-exclude = ["imgs", "test", "samples", "*.wav", "*.m4b", "cover", "chapters.txt"]
+
+# PyPI only has the CPU build of PyTorch for Windows. On Windows and Linux, PyTorch comes from
+# PyTorch's own CUDA 12.8 index instead, so a fresh install keeps using the GPU.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true  # only packages listed in [tool.uv.sources] come from here; everything else from PyPI

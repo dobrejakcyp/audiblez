@@ -23,7 +23,7 @@ jobs:
       - name: check m4b output file
         run: ls -lah Fundamental-Accessibility-Tests-Basic-Functionality-v2.0.0.m4b
   #      - name: run unit-tests (unittest classes in /test)
-  #        run:  poetry run python -m unittest discover test
+  #        run:  uv run python -m unittest discover test
   windows-git-clone-and-run:
     runs-on: windows-latest
     steps:

@@ -12,8 +12,10 @@
 > - a redesigned window: tool column, book card with links, instant offline voice samples, a speed slider,
 >   a Stop button that keeps finished chapters, a status bar and remembered settings.
 >
-> Run it with `audiblez-ui` / `python -m audiblez.ui` (window) or `audiblez book.epub --report` (command line).
-> Voice samples: `python -m audiblez.voice_library`. Self-checks: `python -m audiblez.test_cleaning_rules`.
+> Install with [uv](https://docs.astral.sh/uv/): `uv sync --extra gui` (with the window; Windows/macOS) or
+> `uv sync` (command line only). PyTorch is taken from its CUDA 12.8 index on Windows and Linux.
+> Run it with `uv run audiblez-ui` (window) or `uv run audiblez book.epub --report` (command line).
+> Voice samples: `uv run python -m audiblez.voice_library`. Self-checks: `uv run python -m audiblez.test_cleaning_rules`.
 
 [![Installing via pip and running](https://github.com/santinic/audiblez/actions/workflows/pip-install.yaml/badge.svg)](https://github.com/santinic/audiblez/actions/workflows/pip-install.yaml)
 [![Git clone and run](https://github.com/santinic/audiblez/actions/workflows/git-clone-and-run.yml/badge.svg)](https://github.com/santinic/audiblez/actions/workflows/git-clone-and-run.yml)

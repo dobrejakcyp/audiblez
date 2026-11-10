@@ -227,7 +227,10 @@ def test_every_extracted_line_remembers_where_it_came_from():
 
 
 def test_version_is_the_same_in_the_package_and_in_pyproject():
-    import tomllib
+    try:
+        import tomllib  # part of Python since 3.11
+    except ModuleNotFoundError:
+        return  # Python 3.10: nothing to read pyproject.toml with, so this check is skipped
     from pathlib import Path
     from audiblez import __version__
     pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
