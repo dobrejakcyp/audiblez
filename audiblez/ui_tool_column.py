@@ -23,8 +23,8 @@ import torch.cuda
 import wx
 from wx.lib.scrolledpanel import ScrolledPanel
 
-from audiblez_clean.ui_common import SPACING, bold
-from audiblez_clean.voice_library import LANGUAGES, MODEL_NAME, Voice, all_voices, voices_of
+from audiblez.ui_common import SPACING, bold
+from audiblez.voice_library import LANGUAGES, MODEL_NAME, Voice, all_voices, voices_of
 
 DEFAULT_VOICE = Voice("bm_george")
 

@@ -14,7 +14,7 @@ import wx
 import wx.adv
 from PIL import Image
 
-from audiblez_clean.ui_common import SPACING, bold, describe_audio_length
+from audiblez.ui_common import SPACING, bold, describe_audio_length
 
 
 # =============================================================================================

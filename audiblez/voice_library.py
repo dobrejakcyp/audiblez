@@ -8,12 +8,12 @@ loading, no GPU, no internet.
 Make all samples in one go (a few minutes; voices that are not on this computer yet are
 downloaded once from Hugging Face, about 0.5 MB each). Run from C:\\Users\\lukas\\audiblez:
 
-    venv\\Scripts\\python -m audiblez_clean.voice_library
+    venv\\Scripts\\python -m audiblez.voice_library
 """
 from dataclasses import dataclass
 from pathlib import Path
 
-from audiblez_clean.voices import voices as VOICE_IDS_BY_LANGUAGE
+from audiblez.voices import voices as VOICE_IDS_BY_LANGUAGE
 
 MODEL_NAME = "Kokoro-82M"
 KOKORO_REPOSITORY = "hexgrad/Kokoro-82M"  # where Kokoro downloads its model and voices from (Hugging Face)

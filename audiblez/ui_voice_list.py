@@ -7,8 +7,8 @@ sample is ready. Double-click a row (or press Listen) to hear it; "Use this voic
 """
 import wx
 
-from audiblez_clean.ui_common import SPACING
-from audiblez_clean.voice_library import MODEL_NAME, all_voices
+from audiblez.ui_common import SPACING
+from audiblez.voice_library import MODEL_NAME, all_voices
 
 NOT_SUPPORTED_NOTE = (
     f"{MODEL_NAME} has no Czech voice: a Czech book read by one of these voices is pronounced as if it were "

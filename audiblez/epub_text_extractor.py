@@ -16,7 +16,7 @@ from urllib.parse import unquote
 import ebooklib
 from bs4 import BeautifulSoup, Comment, NavigableString
 
-from audiblez_clean.cleaning_rules import default_removal_rules, default_text_edits
+from audiblez.cleaning_rules import default_removal_rules, default_text_edits
 
 
 # =============================================================================================

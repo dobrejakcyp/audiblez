@@ -3,6 +3,13 @@
 # audiblez - A program to convert e-books into audiobooks using
 # Kokoro-82M model for high-quality text-to-speech synthesis.
 # by Claudio Santini 2025 - https://claudio.uk
+#
+# Changes in this fork (github.com/dobrejakcyp/audiblez) compared to v0.4.9:
+#   - Deciding WHAT text is read aloud moved out to cleaning_rules.py, epub_text_extractor.py and
+#     chapter_selection.py; the cover lookup moved to book_metadata.py.
+#   - main() got two new optional arguments: `text_extractor` and `stop_requested`.
+#   - Voice synthesis, ffmpeg and m4b creation are otherwise unchanged.
+# The original code is in the git history (tag v0.4.9).
 import os
 import traceback
 from glob import glob
@@ -20,13 +27,15 @@ import re
 from io import StringIO
 from types import SimpleNamespace
 from tabulate import tabulate
-from pathlib import Path, PurePosixPath
-from urllib.parse import unquote
+from pathlib import Path
 from string import Formatter
-from bs4 import BeautifulSoup
 from kokoro import KPipeline
 from ebooklib import epub
 from pick import pick
+
+from audiblez.book_metadata import find_cover
+from audiblez.chapter_selection import find_good_chapters
+from audiblez.epub_text_extractor import CleaningReport, EpubTextExtractor
 
 sample_rate = 24000
 
@@ -70,11 +79,33 @@ def set_espeak_library():
         print("On Linux: sudo apt install espeak-ng")
 
 
+class ConversionStopped(Exception):
+    """Raised between two sentences when the user pressed Stop (see `stop_requested` in main)."""
+
+
 def main(file_path, voice, pick_manually, speed, output_folder='.',
-         max_chapters=None, max_sentences=None, selected_chapters=None, post_event=None):
+         max_chapters=None, max_sentences=None, selected_chapters=None, post_event=None,
+         text_extractor=None, stop_requested=None):
+    """
+    stop_requested: an optional threading.Event. When it is set, the conversion stops before the
+    next sentence. Chapters that were already finished stay in the output folder as .wav files,
+    and running the same book again continues with the first unfinished chapter.
+    """
     def status(message, busy=False):  # busy: phase without a percentage, UI shows an animated bar
         print(message)
         if post_event: post_event('CORE_STATUS', message=message, busy=busy)
+
+    try:
+        convert(file_path, voice, pick_manually, speed, output_folder, max_chapters, max_sentences,
+                selected_chapters, post_event, text_extractor, stop_requested, status)
+    except ConversionStopped:
+        status('⏹ Stopped. Finished chapters are kept; start again to continue where it stopped.')
+        if post_event: post_event('CORE_FINISHED', stopped=True)
+
+
+def convert(file_path, voice, pick_manually, speed, output_folder, max_chapters, max_sentences,
+            selected_chapters, post_event, text_extractor, stop_requested, status):
+    """The original body of main(); moved here so main() can catch ConversionStopped in one place."""
 
     if post_event: post_event('CORE_STARTED')
     status('Loading language model…', busy=True)
@@ -96,7 +127,9 @@ def main(file_path, voice, pick_manually, speed, output_folder='.',
     if cover_maybe:
         print(f'Found cover image {cover_maybe.file_name} in {cover_maybe.media_type} format')
 
-    document_chapters = find_document_chapters_and_extract_texts(book)
+    if text_extractor is None:
+        text_extractor = EpubTextExtractor.with_default_rules()
+    document_chapters = text_extractor.extract_chapters(book)
 
     if not selected_chapters:
         if pick_manually is True:
@@ -104,6 +137,8 @@ def main(file_path, voice, pick_manually, speed, output_folder='.',
         else:
             selected_chapters = find_good_chapters(document_chapters)
     print_selected_chapters(document_chapters, selected_chapters)
+    # Only the chapters that will really be converted count in the cleaning report
+    CleaningReport.combine(c.cleaning_report for c in selected_chapters).print_removals(show_samples=False)
     texts = [c.extracted_text for c in selected_chapters]
 
     has_ffmpeg = shutil.which('ffmpeg') is not None
@@ -151,7 +186,8 @@ def main(file_path, voice, pick_manually, speed, output_folder='.',
         start_time = time.time()
         if post_event: post_event('CORE_CHAPTER_STARTED', chapter_index=chapter.chapter_index)
         audio_segments = gen_audio_segments(
-            pipeline, text, voice, speed, stats, post_event=post_event, max_sentences=max_sentences)
+            pipeline, text, voice, speed, stats, post_event=post_event, max_sentences=max_sentences,
+            stop_requested=stop_requested)
         if audio_segments:
             final_audio = np.concatenate(audio_segments)
             soundfile.write(chapter_wav_path, final_audio, sample_rate)
@@ -175,27 +211,10 @@ def main(file_path, voice, pick_manually, speed, output_folder='.',
         if post_event: post_event('CORE_FINISHED')
 
 
-def find_cover(book):
-    def is_image(item):
-        return item is not None and item.media_type.startswith('image/')
-
-    for item in book.get_items_of_type(ebooklib.ITEM_COVER):
-        if is_image(item):
-            return item
-
-    # https://idpf.org/forum/topic-715
-    for meta in book.get_metadata('OPF', 'cover'):
-        if is_image(item := book.get_item_with_id(meta[1]['content'])):
-            return item
-
-    if is_image(item := book.get_item_with_id('cover')):
-        return item
-
-    for item in book.get_items_of_type(ebooklib.ITEM_IMAGE):
-        if 'cover' in item.get_name().lower() and is_image(item):
-            return item
-
-    return None
+def find_document_chapters_and_extract_texts(book):
+    """Kept for code written against audiblez v0.4.9 (e.g. the tests in test/): cleans the book with the
+    default rules and returns its chapters, each with .extracted_text and .title."""
+    return EpubTextExtractor.with_default_rules().extract_chapters(book)
 
 
 def print_selected_chapters(document_chapters, chapters):
@@ -206,7 +225,8 @@ def print_selected_chapters(document_chapters, chapters):
     ], headers=['#', 'Chapter', 'Text Length', 'Selected', 'First words']))
 
 
-def gen_audio_segments(pipeline, text, voice, speed, stats=None, max_sentences=None, post_event=None):
+def gen_audio_segments(pipeline, text, voice, speed, stats=None, max_sentences=None, post_event=None,
+                       stop_requested=None):
     nlp = spacy.load('xx_ent_wiki_sm')
     nlp.add_pipe('sentencizer')
     audio_segments = []
@@ -214,6 +234,8 @@ def gen_audio_segments(pipeline, text, voice, speed, stats=None, max_sentences=N
     sentences = list(doc.sents)
     for i, sent in enumerate(sentences):
         if max_sentences and i > max_sentences: break
+        if stop_requested is not None and stop_requested.is_set():
+            raise ConversionStopped()  # the unfinished chapter is NOT saved, so no half chapters are left
         for gs, ps, audio in pipeline(sent.text, voice=voice, speed=speed, split_pattern=r'\n\n\n'):
             audio_segments.append(audio)
         if stats:
@@ -241,85 +263,9 @@ def gen_text(text, voice='af_heart', output_file='text.wav', speed=1, play=False
         subprocess.run(['ffplay', '-autoexit', '-nodisp', output_file])
 
 
-# "(fig. 20)", "(see fig. 5)", "(detail of fig. 19)", "(figs. 63, 64)", "(Figure 3)" -- not read aloud
-FIGURE_REF = re.compile(r'\s*\((?:see\s+(?:also\s+)?|detail\s+of\s+|cf\.\s*)?(?:figs?\.|figures?)\s*\d+[^()]*\)', re.I)
-# photo/figure captions are not read aloud: class "figcap", "caption", "fig-caption", "image-caption"... (not "dropcap")
-CAPTION_CLASS = re.compile(r'(?:fig|img|image|photo)?[-_]?cap(?:tion)?s?', re.I)
-# decorative note markers / section breaks, e.g. ♦ endnote links, "■ ■ ■" -- not read aloud (• † ‡ kept: can carry meaning)
-DECORATIVE = re.compile('[♦◆◇❖■□⁂✦✧❧☙]')
-
-
-def is_caption(element):
-    return any(e.name == 'figcaption' or any(CAPTION_CLASS.fullmatch(c) for c in e.get('class') or [])
-               for e in [element, *element.parents])
-
-
-def find_document_chapters_and_extract_texts(book):
-    """Returns every chapter that is an ITEM_DOCUMENT and enriches each chapter with extracted_text."""
-    document_chapters = []
-    for chapter in book.get_items():
-        if chapter.get_type() != ebooklib.ITEM_DOCUMENT:
-            continue
-        xml = chapter.get_body_content()
-        soup = BeautifulSoup(xml, features='lxml')
-        chapter.extracted_text = ''
-        html_content_tags = ['title', 'p', 'h1', 'h2', 'h3', 'h4', 'li']
-        for text in [DECORATIVE.sub('', FIGURE_REF.sub('', c.text)).strip() for c in soup.find_all(html_content_tags) if c.text and not is_caption(c)]:
-            if not any(ch.isalnum() for ch in text):  # nothing speakable left, e.g. a lone ♦ or "* * *"
-                continue
-            if not text.endswith('.'):
-                text += '.'
-            chapter.extracted_text += text + '\n'
-        document_chapters.append(chapter)
-    for i, c in enumerate(document_chapters):
-        c.chapter_index = i  # this is used in the UI to identify chapters
-    set_chapter_titles(book, document_chapters)
-    return document_chapters
-
-
-def set_chapter_titles(book, document_chapters):
-    """Names each chapter from the book's table of contents. A document without its own entry continues
-    the previous one (e.g. a chapter's title page is in the TOC, its text is in the next file)."""
-    toc = {}
-
-    def walk(items):
-        for item in items:
-            if isinstance(item, tuple):  # (Section, children)
-                walk([item[0]])
-                walk(item[1])
-            elif (href := unquote((getattr(item, 'href', '') or '').split('#')[0])) and item.title:
-                toc.setdefault(PurePosixPath(href).name, item.title.strip())
-
-    walk(book.toc)
-    title = ''
-    for c in document_chapters:
-        c.title = title = toc.get(PurePosixPath(c.get_name()).name, title)
-
-
-def is_chapter(c):
-    name = c.get_name().lower()
-    has_min_len = len(c.extracted_text) > 100
-    title_looks_like_chapter = bool(
-        'chapter' in name.lower()
-        or re.search(r'part_?\d{1,3}', name)
-        or re.search(r'split_?\d{1,3}', name)
-        or re.search(r'ch_?\d{1,3}', name)
-        or re.search(r'chap_?\d{1,3}', name)
-    )
-    return has_min_len and title_looks_like_chapter
-
-
 def chapter_beginning_one_liner(c, chars=20):
     s = c.extracted_text[:chars].strip().replace('\n', ' ').replace('\r', ' ')
     return s + '…' if len(s) > 0 else ''
-
-
-def find_good_chapters(document_chapters):
-    chapters = [c for c in document_chapters if c.get_type() == ebooklib.ITEM_DOCUMENT and is_chapter(c)]
-    if len(chapters) == 0:
-        print('Not easy to recognize the chapters, defaulting to all non-empty documents.')
-        chapters = [c for c in document_chapters if c.get_type() == ebooklib.ITEM_DOCUMENT and len(c.extracted_text) > 10]
-    return chapters
 
 
 def pick_chapters(chapters):

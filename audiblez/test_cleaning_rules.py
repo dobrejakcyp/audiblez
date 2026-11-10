@@ -1,12 +1,12 @@
 """
 Self-check for the cleaning rules. Run from C:\\Users\\lukas\\audiblez with:
 
-    venv\\Scripts\\python -m audiblez_clean.test_cleaning_rules
+    venv\\Scripts\\python -m audiblez.test_cleaning_rules
 
 Each case feeds a tiny hand-written page to the extractor and checks exactly what comes out.
 When you add a rule to cleaning_rules.py, add a case here that shows it working.
 """
-from audiblez_clean.epub_text_extractor import EpubTextExtractor
+from audiblez.epub_text_extractor import EpubTextExtractor
 
 
 def read_aloud(html, extra_class_names=()):
@@ -79,7 +79,7 @@ class FakeChapter:
 
 
 def test_only_chapter_like_files_are_converted():
-    from audiblez_clean.chapter_selection import find_good_chapters
+    from audiblez.chapter_selection import find_good_chapters
     long_text = "Some real story text. " * 20
     files = [FakeChapter("text/Chapter01.xhtml", long_text), FakeChapter("text/Notes.xhtml", long_text),
              FakeChapter("text/Index.xhtml", long_text), FakeChapter("text/Chapter02.xhtml", "too short")]
@@ -87,7 +87,7 @@ def test_only_chapter_like_files_are_converted():
 
 
 def test_sections_get_titles_and_reasons():
-    from audiblez_clean.chapter_selection import SectionClassifier
+    from audiblez.chapter_selection import SectionClassifier
     long_text = "Some real story text. " * 20
     files = [
         FakeChapter("text/Cover.xhtml", "", title="Cover"),
@@ -115,7 +115,7 @@ def test_sections_get_titles_and_reasons():
 
 
 def test_everything_is_read_when_no_chapter_is_recognised():
-    from audiblez_clean.chapter_selection import SectionClassifier
+    from audiblez.chapter_selection import SectionClassifier
     files = [FakeChapter("a.xhtml", "x" * 500, title="Strange"), FakeChapter("b.xhtml", "tiny"),
              FakeChapter("c.xhtml", "x" * 500, title="THE FULL PROJECT GUTENBERG LICENSE")]
     sections = SectionClassifier().describe(files)
@@ -125,7 +125,7 @@ def test_everything_is_read_when_no_chapter_is_recognised():
 
 def test_book_metadata_finds_isbn_and_builds_links():
     from ebooklib import epub
-    from audiblez_clean.book_metadata import BookMetadata
+    from audiblez.book_metadata import BookMetadata
     book = epub.EpubBook()
     book.set_identifier("urn:uuid:12345678-1234-1234-1234-123456789012")
     book.add_metadata("DC", "identifier", "urn:isbn:978-0-06-345398-2")
@@ -145,7 +145,7 @@ def test_book_metadata_finds_isbn_and_builds_links():
 
 
 def test_book_without_isbn_searches_goodreads_by_title():
-    from audiblez_clean.book_metadata import BookMetadata
+    from audiblez.book_metadata import BookMetadata
     metadata = BookMetadata(title="Proces", authors=["Franz Kafka"], language="cs")
     urls = {link.label: link.url for link in metadata.links()}
     assert urls["The book on Wikipedia"].startswith("https://cs.wikipedia.org/")
@@ -153,7 +153,7 @@ def test_book_without_isbn_searches_goodreads_by_title():
 
 
 def test_voice_names_and_languages():
-    from audiblez_clean.voice_library import Voice, voices_of, LANGUAGES
+    from audiblez.voice_library import Voice, voices_of, LANGUAGES
     george = Voice("bm_george")
     assert george.display_name == "George (male)"
     assert george.language.name == "English (British)"
@@ -164,7 +164,7 @@ def test_voice_names_and_languages():
 def test_settings_are_saved_and_loaded_and_survive_a_broken_file():
     import json, tempfile
     from pathlib import Path
-    from audiblez_clean.settings import UserSettings
+    from audiblez.settings import UserSettings
     with tempfile.TemporaryDirectory() as folder:
         path = Path(folder) / "settings.json"
         assert UserSettings.load(path) == UserSettings(), "no file yet -> defaults"
@@ -194,7 +194,7 @@ class FakeHtmlChapter:
 
 
 def test_picture_text_is_found_by_its_position_next_to_pictures():
-    from audiblez_clean.picture_text_detector import PictureTextDetector
+    from audiblez.picture_text_detector import PictureTextDetector
     story = '<p class="indent">Normal story text that goes on and on.</p>' * 30
     picture_group = ('<div class="full40"><img src="a.jpg"/></div><div class="full40"><img src="b.jpg"/></div>'
                      '<p class="capl0">2. Our siblings, a caption.</p><p class="credit">© Some Agency.</p>')
@@ -207,7 +207,7 @@ def test_picture_text_is_found_by_its_position_next_to_pictures():
 
 
 def test_story_text_is_never_picture_text_even_in_a_book_full_of_pictures():
-    from audiblez_clean.picture_text_detector import PictureTextDetector
+    from audiblez.picture_text_detector import PictureTextDetector
     # a technical book: almost every story paragraph sits next to a diagram
     diagram_page = ('<p class="indent">Some explanation of the circuit below, long enough to matter.</p>'
                     '<div><img src="d.png"/></div><p class="indent">More explanation after the diagram.</p>'
@@ -218,7 +218,7 @@ def test_story_text_is_never_picture_text_even_in_a_book_full_of_pictures():
 
 
 def test_every_extracted_line_remembers_where_it_came_from():
-    from audiblez_clean.epub_text_extractor import EpubTextExtractor
+    from audiblez.epub_text_extractor import EpubTextExtractor
     kinds = []
     text = EpubTextExtractor.with_default_rules().extract_text_from_html(
         '<h2 class="chtit">Title</h2><p class="indent">One.</p><p>  </p><p class="capl0">Two.</p>', line_kinds=kinds)
@@ -227,7 +227,7 @@ def test_every_extracted_line_remembers_where_it_came_from():
 
 
 def test_combined_report_adds_up_chapter_reports():
-    from audiblez_clean.epub_text_extractor import CleaningReport
+    from audiblez.epub_text_extractor import CleaningReport
     _, first = read_aloud('<p class="note">aaaa</p>')
     _, second = read_aloud('<p class="note">bb</p><p>kept text</p>')
     combined = CleaningReport.combine([first, second])

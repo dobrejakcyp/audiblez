@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup
 
-from audiblez_clean.cleaning_rules import default_removal_rules
+from audiblez.cleaning_rules import default_removal_rules
 
 TEXT_BLOCK_TAGS = ("p", "li", "h4", "h5", "h6")
 
