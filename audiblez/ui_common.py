@@ -27,6 +27,11 @@ def set_wrapped_text(label, text, width):
     label.InvalidateBestSize()  # so the layout asks for the new number of lines
 
 
+def make_text_font(face, size):
+    """The font for the book text. `face` "" means the system's default font."""
+    return wx.Font(size, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, False, face)
+
+
 def describe_audio_length(characters):
     hours = characters / CHARACTERS_PER_AUDIO_MINUTE / 60
     return f"{characters:,} characters (about {hours:.1f} hours of audio)"

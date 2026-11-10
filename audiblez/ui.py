@@ -46,6 +46,7 @@ from audiblez.picture_text_detector import find_lines_of_kind
 from audiblez.settings import UserSettings
 from audiblez.ui_book_panels import BookCard, ChapterListPanel, TextPreviewPanel
 from audiblez.ui_common import SPACING, describe_audio_length
+from audiblez.ui_font_dialog import FontDialog
 from audiblez.ui_tool_column import ToolColumn, open_folder_in_file_manager
 from audiblez.ui_voice_list import VoiceListDialog
 from audiblez.voice_library import VoiceSampleLibrary
@@ -217,6 +218,17 @@ class MainWindow(wx.Frame):
             self.Maximize()
         if self.settings.tool_column_width >= ToolColumn.NARROWEST:
             wx.CallAfter(self.outer_splitter.SetSashPosition, self.settings.tool_column_width)
+        self.text_preview.set_text_font(self.settings.text_font_face, self.settings.text_font_size)
+
+    def on_choose_text_font(self, event):
+        """View → Text font (or the "Aa Font..." button): choose the font of the book text."""
+        with FontDialog(self, self.settings.text_font_face, self.settings.text_font_size,
+                        self.settings.favourite_fonts, on_change=self.text_preview.set_text_font) as dialog:
+            if dialog.ShowModal() == wx.ID_OK:
+                self.settings.text_font_face, self.settings.text_font_size = dialog.face, dialog.size
+                self.status.show(f"Text font: {dialog.face or 'system default'}, {dialog.size} pt")
+            else:  # Cancel: the dialog showed its choices live, so put the saved font back
+                self.text_preview.set_text_font(self.settings.text_font_face, self.settings.text_font_size)
 
     def save_settings(self):
         self.tools.store_settings(self.settings)
@@ -248,12 +260,16 @@ class MainWindow(wx.Frame):
         file_menu = wx.Menu()
         open_item = file_menu.Append(wx.ID_OPEN, "&Open EPUB...\tCtrl+O")
         exit_item = file_menu.Append(wx.ID_EXIT, "E&xit\tCtrl+Q")
+        view_menu = wx.Menu()
+        font_item = view_menu.Append(wx.ID_ANY, "Text &font...\tCtrl+Shift+F")
         help_menu = wx.Menu()
         about_item = help_menu.Append(wx.ID_ABOUT, "&About")
+        self.Bind(wx.EVT_MENU, self.on_choose_text_font, font_item)
         self.Bind(wx.EVT_MENU, self.on_open, open_item)
         self.Bind(wx.EVT_MENU, lambda event: self.Close(), exit_item)
         self.Bind(wx.EVT_MENU, self.on_about, about_item)
         menubar.Append(file_menu, "&File")
+        menubar.Append(view_menu, "&View")
         menubar.Append(help_menu, "&Help")
         self.SetMenuBar(menubar)
 

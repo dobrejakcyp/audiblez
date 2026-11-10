@@ -14,7 +14,8 @@ import wx
 import wx.adv
 from PIL import Image
 
-from audiblez.ui_common import SPACING, bold, describe_audio_length, set_wrapped_text
+from audiblez.fonts import DEFAULT_FONT_SIZE, LARGEST_FONT_SIZE, SMALLEST_FONT_SIZE
+from audiblez.ui_common import SPACING, bold, describe_audio_length, make_text_font, set_wrapped_text
 
 
 # =============================================================================================
@@ -271,11 +272,18 @@ class TextPreviewPanel(wx.Panel):
         # RICH2: allows colours. NOHIDESEL: a highlighted line stays visible when the focus is elsewhere.
         self.text_area = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_WORDWRAP | wx.TE_RICH2 | wx.TE_NOHIDESEL)
         self.text_area.Bind(wx.EVT_CONTEXT_MENU, self.on_context_menu)
-        self.text_area.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.text_area.SetFont(make_text_font("", DEFAULT_FONT_SIZE))  # MainWindow applies the saved font
+        self.highlighted_classes = ()  # remembered, so the text can be shown again in another font
+        self.font_button = wx.Button(self, label="Aa  Font...", style=wx.BU_EXACTFIT)
+        self.font_button.SetToolTip("Choose the font and size of the book text (also in View → Text font)")
+        self.font_button.Bind(wx.EVT_BUTTON, main_window.on_choose_text_font)
         self.text_area.Bind(wx.EVT_TEXT, self.on_text_edited)
 
         self.header_sizer = wx.BoxSizer(wx.VERTICAL)  # see ChapterListPanel.header_sizer
-        self.header_sizer.Add(self.heading, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, SPACING)
+        title_row = wx.BoxSizer(wx.HORIZONTAL)
+        title_row.Add(self.heading, 1, wx.ALIGN_CENTER_VERTICAL)
+        title_row.Add(self.font_button, 0, wx.LEFT, SPACING)
+        self.header_sizer.Add(title_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, SPACING)
         self.header_sizer.Add(self.file_label, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, SPACING)
         self.header_sizer.Add(self.note, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, SPACING)
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -289,6 +297,16 @@ class TextPreviewPanel(wx.Panel):
     def set_header_height(self, height):
         self.header_sizer.SetMinSize((-1, height))
         self.Layout()
+
+    def set_text_font(self, face, size):
+        """Show the book text in another font. The text is put in again, so the yellow lines are kept."""
+        size = min(LARGEST_FONT_SIZE, max(SMALLEST_FONT_SIZE, size or DEFAULT_FONT_SIZE))
+        self.text_area.SetFont(make_text_font(face, size))
+        if self.section is not None:
+            position = self.text_area.GetInsertionPoint()  # stay at the same place in the text
+            self.show_section(self.section, self.highlighted_classes)
+            self.text_area.SetInsertionPoint(position)
+            self.text_area.ShowPosition(position)
 
     def show_note(self, yellow_lines):
         """The third header row: the yellow note if this section has picture text, otherwise the tip."""
@@ -306,6 +324,7 @@ class TextPreviewPanel(wx.Panel):
     def show_section(self, section, highlighted_classes=()):
         """Show the section's text; lines from elements with one of `highlighted_classes` turn yellow."""
         self.section = section
+        self.highlighted_classes = highlighted_classes
         self.heading.SetLabel(section.display_title)
         self.file_label.SetLabel(f"File: {section.file_name}   ({section.reason})")
         self.text_area.ChangeValue(section.chapter.extracted_text)  # ChangeValue does not fire EVT_TEXT

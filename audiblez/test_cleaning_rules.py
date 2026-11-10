@@ -266,6 +266,18 @@ def test_lines_of_one_kind_are_found_across_chapters():
     assert [(section is first, line) for section, line in found] == [(True, 1), (False, 0), (False, 2)], found
 
 
+def test_font_lists_are_cleaned_recommended_and_searchable():
+    from audiblez.fonts import clean_font_names, recommended_fonts, search_fonts
+    raw = ["Georgia", "@MS Gothic", "Arial", "georgia", "", "  ", "Cambria", "Comic Sans MS", "MS Gothic", "Arial"]
+    names = clean_font_names(raw)
+    assert "@MS Gothic" not in names and "" not in names, names
+    assert names == sorted(set(names), key=str.casefold) and names.count("Arial") == 1, names
+    assert recommended_fonts(["Arial", "cambria", "Georgia", "Comic Sans MS"]) == ["Georgia", "cambria"], \
+        "only installed serif fonts, in the order of the recommended list, with the installed spelling"
+    assert search_fonts(["Georgia", "Cambria", "Book Antiqua"], " geo ") == ["Georgia"]
+    assert search_fonts(["Georgia", "Cambria"], "") == ["Georgia", "Cambria"]
+
+
 def test_combined_report_adds_up_chapter_reports():
     from audiblez.epub_text_extractor import CleaningReport
     _, first = read_aloud('<p class="note">aaaa</p>')

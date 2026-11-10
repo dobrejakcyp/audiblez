@@ -28,6 +28,9 @@ class UserSettings:
     window_position: list = field(default_factory=list)  # [x, y]
     window_maximized: bool = False
     tool_column_width: int = 0  # pixels; 0 = the default width
+    text_font_face: str = ""  # font of the book text; "" = the system default (see fonts.py)
+    text_font_size: int = 12
+    favourite_fonts: list = field(default_factory=list)  # the user's own recommended fonts
     picture_text_removed: dict = field(default_factory=dict)  # book file name -> CSS classes removed (tool 6)
 
     @classmethod
