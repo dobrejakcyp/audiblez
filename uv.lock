@@ -61,6 +61,7 @@ source = { editable = "." }
 dependencies = [
     { name = "bs4" },
     { name = "ebooklib" },
+    { name = "en-core-web-sm" },
     { name = "huggingface-hub" },
     { name = "kokoro" },
     { name = "lxml" },
@@ -73,6 +74,7 @@ dependencies = [
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform != 'linux' and sys_platform != 'win32'" },
     { name = "torch", version = "2.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform != 'linux' and sys_platform != 'win32'" },
+    { name = "xx-ent-wiki-sm" },
 ]
 
 [package.optional-dependencies]
@@ -91,6 +93,7 @@ dev = [
 requires-dist = [
     { name = "bs4", specifier = ">=0.0.2,<0.0.3" },
     { name = "ebooklib", specifier = ">=0.18,<0.19" },
+    { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "huggingface-hub" },
     { name = "kokoro", specifier = ">=0.7.9,<0.8.0" },
     { name = "lxml" },
@@ -104,6 +107,7 @@ requires-dist = [
     { name = "torch", marker = "sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=2.6" },
     { name = "torch", marker = "sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=2.6", index = "https://download.pytorch.org/whl/cu128" },
     { name = "wxpython", marker = "extra == 'gui'", specifier = ">=4.2" },
+    { name = "xx-ent-wiki-sm", url = "https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl" },
 ]
 provides-extras = ["gui"]
 
@@ -626,6 +630,14 @@ dependencies = [
     { name = "six" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e8/1d/90bb33317d756c25b40bb55312dda30a94afb691755763fc00976250c82b/EbookLib-0.18.tar.gz", hash = "sha256:38562643a7bc94d9bf56e9930b4927e4e93b5d1d0917f697a6454db5a1c1a533", size = 115484, upload-time = "2022-11-30T22:29:13.394Z" }
+
+[[package]]
+name = "en-core-web-sm"
+version = "3.8.0"
+source = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
+wheels = [
+    { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl", hash = "sha256:1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85" },
+]
 
 [[package]]
 name = "espeakng-loader"
@@ -2979,4 +2991,12 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/dd/24/a91d3b3d2bf9e907ae6236e86142238e74da7eaf08bf6a36ba8a118c2c93/wxpython-4.3.2-cp312-cp312-win32.whl", hash = "sha256:610eafacc6cbefeddf64c501e3a6de78f94a27ab4be90c23673d7afa3c01f9bd", size = 17153994, upload-time = "2026-10-16T00:49:20.059Z" },
     { url = "https://files.pythonhosted.org/packages/44/3e/18793f7a97660a0bf7e1deb5b34c635b1e83f405bfc49aab1f180f81b5ed/wxpython-4.3.2-cp312-cp312-win_amd64.whl", hash = "sha256:6973dd8f17b8c18b4cc452d22fd02c05253ea65a0714c55904713d20189d1be8", size = 19663913, upload-time = "2026-10-13T22:46:33.292Z" },
     { url = "https://files.pythonhosted.org/packages/dd/23/5f5b0eb46651ad23c64a9bd1199b512f43b2dfc4787fe8ca978d651fb983/wxpython-4.3.2-cp312-cp312-win_arm64.whl", hash = "sha256:c12b828914a162754f96927cc5598f8f62490fc1da2dd87423cae2c1842602a7", size = 17467603, upload-time = "2026-10-13T22:46:39.394Z" },
+]
+
+[[package]]
+name = "xx-ent-wiki-sm"
+version = "3.8.0"
+source = { url = "https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl" }
+wheels = [
+    { url = "https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl", hash = "sha256:6f3c4b853852ea9e9d2dc76cc950dddb10a7e4c42d813308caefe6c5e8be2f0a" },
 ]

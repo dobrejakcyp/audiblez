@@ -14,6 +14,9 @@
 >
 > Install with [uv](https://docs.astral.sh/uv/): `uv sync --extra gui` (with the window; Windows/macOS) or
 > `uv sync` (command line only). PyTorch is taken from its CUDA 12.8 index on Windows and Linux.
+> **One folder, Windows and WSL:** Windows' uv keeps its environment in `.venv`. When working on the same
+> folder from WSL, point WSL's uv elsewhere first, e.g. `export UV_PROJECT_ENVIRONMENT=~/.venvs/audiblez`,
+> otherwise it would replace the Windows `.venv` with a Linux one.
 > Run it with `uv run audiblez-ui` (window) or `uv run audiblez book.epub --report` (command line).
 > Voice samples: `uv run python -m audiblez.voice_library`. Self-checks: `uv run python -m audiblez.test_cleaning_rules`.
 

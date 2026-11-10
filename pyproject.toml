@@ -22,6 +22,10 @@ dependencies = [
     "numpy",
     "lxml",
     "huggingface-hub",
+    # spaCy language models: sentence splitting (audiblez) and English pronunciation (misaki).
+    # Without them, spaCy tries to install them on first use with pip, which uv environments do not have.
+    "xx-ent-wiki-sm",
+    "en-core-web-sm",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +57,8 @@ source-exclude = ["imgs", "test", "samples", "*.wav", "*.m4b", "cover", "chapter
 # PyTorch's own CUDA 12.8 index instead, so a fresh install keeps using the GPU.
 [tool.uv.sources]
 torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+xx-ent-wiki-sm = { url = "https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl" }
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
