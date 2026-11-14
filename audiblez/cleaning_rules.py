@@ -215,6 +215,23 @@ class DecorativeSymbolEdit(TextEdit):
         return self.PATTERN.sub("", text)
 
 
+class QuotationMarkEdit(TextEdit):
+    """
+    Deletes quotation marks: “ ” „ « » " and the opening single quote ‘.
+    Kokoro does not turn them into words, but it gives them to the voice model as tokens of their own,
+    and the voice sometimes makes an audible sound on them, especially next to other punctuation
+    (“...been!”.). Without them the sentence sounds the same, minus that sound.
+    The apostrophe ’ is kept: it is part of words (Shockley’s, don’t), and a closing single quote
+    looks exactly the same.
+    """
+
+    name = "quotation marks"
+    PATTERN = re.compile("[“”„‟«»\"‘‛]")
+
+    def apply(self, text):
+        return self.PATTERN.sub("", text)
+
+
 def default_text_edits():
     """The text edits used for normal conversions, applied in this order."""
-    return [FigureReferenceEdit(), DecorativeSymbolEdit()]
+    return [FigureReferenceEdit(), DecorativeSymbolEdit(), QuotationMarkEdit()]

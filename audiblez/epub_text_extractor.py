@@ -16,7 +16,9 @@ from urllib.parse import unquote
 import ebooklib
 from bs4 import BeautifulSoup, Comment, NavigableString
 
+from audiblez.chapter_selection import SectionClassifier
 from audiblez.cleaning_rules import default_removal_rules, default_text_edits
+from audiblez.spoken_headings import add_spoken_headings
 
 
 # =============================================================================================
@@ -143,8 +145,12 @@ class EpubTextExtractor:
         extractor.report.print_removals(show_samples=True)
     """
 
-    # Only the text inside these tags is read aloud (same list as the original audiblez).
-    TEXT_BLOCK_TAGS = ("title", "p", "h1", "h2", "h3", "h4", "li")
+    # Only the text inside these tags is read aloud. The original audiblez had only the first seven;
+    # text standing directly in a <blockquote> or <div> was then lost (e.g. quoted letters and
+    # interviews printed in small type). A block's own text never includes the blocks nested inside
+    # it (see _text_of_block_itself), so a <div> full of <p> paragraphs adds nothing twice.
+    TEXT_BLOCK_TAGS = ("title", "p", "h1", "h2", "h3", "h4", "li", "blockquote", "div", "h5", "h6", "dd", "dt")
+    SENTENCE_ENDINGS = (".", "!", "?", "…", ":", ";")
 
     def __init__(self, removal_rules, text_edits, report=None):
         self.removal_rules = removal_rules
@@ -166,6 +172,8 @@ class EpubTextExtractor:
             chapter.cleaning_report  what the cleaning removed from THIS chapter
             chapter.title            the name from the table of contents
             chapter.chapter_index    its position (the rest of audiblez relies on these names)
+        Every chapter with its own table-of-contents entry starts with a spoken heading such as
+        "Chapter One. OIL DROPS." (see spoken_headings.py).
         After the call, self.report holds the combined report of all chapters.
         `on_progress(files_done, files_total)` is called after each file (the GUI shows it in its status bar).
         """
@@ -182,6 +190,7 @@ class EpubTextExtractor:
         for position, chapter in enumerate(chapters):
             chapter.chapter_index = position
         self._assign_titles_from_table_of_contents(book, chapters)
+        add_spoken_headings(chapters, short_page_characters=SectionClassifier.MINIMUM_CHARACTERS)
         self.report = CleaningReport.combine(chapter.cleaning_report for chapter in chapters)
         return chapters
 
@@ -255,7 +264,7 @@ class EpubTextExtractor:
         text = text.strip()
         if not any(character.isalnum() for character in text):  # e.g. a lone "* * *"
             return ""
-        if not text.endswith("."):
+        if not text.rstrip("’)]").endswith(self.SENTENCE_ENDINGS):  # "Stop!’" already ends a sentence
             text += "."  # gives the voice a pause at the end of headings and list items
         return text
 

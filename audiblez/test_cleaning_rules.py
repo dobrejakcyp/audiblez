@@ -374,6 +374,67 @@ def test_status_messages_get_their_colour_from_their_icon_and_success_fades_smoo
     assert mix_colours(green, grey, 0.5) == wx.Colour(220, 235, 220), "half way"
 
 
+class FakeTitledChapter:
+    """Just enough of an extracted chapter for the heading and section checks."""
+    def __init__(self, title, text, file_name="text.xhtml", title_is_inherited=False):
+        self.title, self.extracted_text, self.title_is_inherited = title, text, title_is_inherited
+        self.line_kinds = [("p", ())] * len(text.splitlines())
+        self.file_name = file_name
+
+    def get_name(self):
+        return self.file_name
+
+
+def test_quotation_marks_are_not_read_and_no_period_is_added_after_an_exclamation():
+    text, _ = read_aloud('<p>he said, “Oh, what idiots we have all been!”<sup><a href="#n11">11</a></sup></p>'
+                         "<p>the ‘vacuum tube’ lab and Shockley’s office</p>")
+    assert text == "he said, Oh, what idiots we have all been!\nthe vacuum tube’ lab and Shockley’s office.\n", text
+
+
+def test_text_standing_directly_in_a_blockquote_is_read():
+    text, _ = read_aloud('<blockquote><span>I was given a lecture by the director.</span>'
+                         '<sup><small><a href="#n12">12</a></small></sup></blockquote><p>Next paragraph.</p>')
+    assert text == "I was given a lecture by the director.\nNext paragraph.\n", text
+
+
+def test_chapters_and_parts_get_one_spoken_heading_instead_of_the_printed_one():
+    from audiblez.spoken_headings import add_spoken_headings, spoken_heading
+    assert spoken_heading("CHAPTER 2 The Computer") == "Chapter 2. The Computer."
+    assert spoken_heading("Part I: Cold War Chips") == "Part 1. Cold War Chips."
+    assert spoken_heading("Chapter 15: “That Competition Is Tough”") == "Chapter 15. That Competition Is Tough."
+    for not_numbered in ("I Was Born", "Civil War", "One Day in May", "1984", "Part of the Problem"):
+        assert spoken_heading(not_numbered) == not_numbered + ".", not_numbered
+
+    body = "The first thing they noticed was his restlessness, which everyone in town could see.\n"
+    part = FakeTitledChapter("PART ONE", "Part 1.\n")
+    first = FakeTitledChapter("One. OIL DROPS", "One.\nOIL DROPS.\n" + body)
+    continued = FakeTitledChapter("One. OIL DROPS", body, title_is_inherited=True)
+    subtitle = FakeTitledChapter("CHAPTER 1 Ada, Countess of Lovelace",
+                           "CHAPTER ONE.\nADA, COUNTESS OF LOVELACE.\nPOETICAL SCIENCE.\n" + body)
+    add_spoken_headings([part, first, continued, subtitle], short_page_characters=100)
+    assert first.extracted_text == "Part ONE.\nChapter One. OIL DROPS.\n" + body, first.extracted_text
+    assert len(first.line_kinds) == 3, "one kind per line, so highlighting still lines up"
+    assert continued.extracted_text == body, "a page that continues a chapter gets no heading"
+    assert subtitle.extracted_text.startswith("Chapter 1. Ada, Countess of Lovelace.\nPOETICAL SCIENCE.\n"), \
+        "a subtitle that is not part of the title is kept"
+
+
+def test_sections_are_recognised_by_numbered_titles_front_matter_and_copyright_text():
+    from audiblez.chapter_selection import SectionClassifier
+    story = "Real chapter text. " * 20
+    sections = SectionClassifier().describe([
+        FakeTitledChapter("", "THE PUBLISHER.\nAll rights reserved. " + story, file_name="split_001.html"),
+        FakeTitledChapter("", "CONTENTS.\nOne. OIL DROPS.\n" + story, file_name="split_002.html"),
+        FakeTitledChapter("Copyright", "All rights reserved. " + story, file_name="split_003.html"),
+        FakeTitledChapter("1. 1953", story, file_name="epub_c01_r1.htm"),
+        FakeTitledChapter("Selected Bibliography", story, file_name="split_005.html"),
+        FakeTitledChapter("Photo Credits", "Page 3: All rights reserved. " + story, file_name="split_006.html"),
+    ])
+    assert [(s.is_included, s.reason) for s in sections] == [
+        (False, "front matter"), (False, "front matter"), (False, "copyright"), (True, "chapter"),
+        (False, "selected bibliography"), (False, "copyright")], [(s.is_included, s.reason) for s in sections]
+
+
 if __name__ == "__main__":
     all_tests = {name: function for name, function in globals().items() if name.startswith("test_")}
     for name, function in all_tests.items():

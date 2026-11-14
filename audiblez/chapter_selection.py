@@ -12,19 +12,28 @@ THE BIG PICTURE
 
 HOW THE DEFAULT IS DECIDED (the first step that applies wins)
     1. 100 characters or less               -> not read, "too short"  (cover, title page, part dividers)
-    2. title says it is not story text      -> not read, e.g. "notes"  (contents, notes, index, copyright ...)
-    3. title says it is extra story text    -> read,     e.g. "afterword" (preface, introduction, epilogue ...)
-    4. file name looks like a chapter       -> read,     "chapter"   (the rule the original audiblez used)
-    5. anything else                        -> not read, "not recognised"
+    2. untitled page before the first entry
+       of the table of contents             -> not read, "front matter" (title page, half title ...)
+    3. title says it is not story text      -> not read, e.g. "notes"  (contents, notes, index, copyright ...)
+    4. text says "All rights reserved"      -> not read, "copyright"  (copyright pages named after the publisher)
+    5. title says it is extra story text    -> read,     e.g. "afterword" (preface, introduction, epilogue ...)
+    6. title starts with a chapter number   -> read,     "chapter"   ("1. 1953", "One. OIL DROPS", "Chapter 2 ...")
+    7. file name looks like a chapter       -> read,     "chapter"   (the rule the original audiblez used)
+    8. anything else                        -> not read, "not recognised"
+    The "title" is the page's entry in the table of contents. A page without any (not even a previous
+    one it continues) is judged by its first line instead, so a page that starts with "CONTENTS" is
+    recognised as the contents.
     If nothing at all ends up being read, every "not recognised" file is read instead
     (the original audiblez did something similar; known non-story pages stay unticked).
 
-    Steps 2 and 3 only look at the START of the title, so "Notes" or "Praise for Sapiens"
+    Steps 3 and 5 only look at the START of the title, so "Notes" or "Praise for Sapiens"
     match, but a chapter called "In Praise of Idleness" does not.
 """
 import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+
+from audiblez.spoken_headings import numbered_title
 
 
 @dataclass
@@ -49,11 +58,12 @@ class SectionClassifier:
     """Turns the extracted chapters into BookSections, deciding for each one whether it is read aloud."""
 
     MINIMUM_CHARACTERS = 100
+    LONGEST_COPYRIGHT_PAGE = 10_000  # characters; a longer page that says "All rights reserved" is not a copyright page
 
     # Titles that START with one of these are not part of the story (step 2).
     NOT_STORY_TITLE = re.compile(
         r"^(contents|table of contents|copyright|index|notes|endnotes|footnotes|acknowledge?ments"
-        r"|praise|about the authors?|about the publisher|also by|other books by|bibliography|references"
+        r"|praise|about the authors?|about the publisher|also by|other books by|(?:selected )?bibliography|references"
         r"|further reading|permissions|illustration credits|picture credits|cover|title page|dedication|colophon"
         r"|the project gutenberg|the full project gutenberg)\b",
         re.IGNORECASE)
@@ -70,8 +80,11 @@ class SectionClassifier:
     def describe(self, chapters):
         """Return one BookSection per chapter, in book order."""
         sections = []
+        book_has_table_of_contents = any(getattr(chapter, "title", "") for chapter in chapters)
         for chapter in chapters:
-            is_included, reason = self._decide(chapter)
+            # Before the first table-of-contents entry, a page has no title at all (step 2)
+            is_front_matter = book_has_table_of_contents and not getattr(chapter, "title", "")
+            is_included, reason = self._decide(chapter, is_front_matter)
             sections.append(BookSection(
                 chapter=chapter,
                 display_title=self._display_title(chapter),
@@ -83,15 +96,22 @@ class SectionClassifier:
 
     # ---- the decision ------------------------------------------------------------------------
 
-    def _decide(self, chapter):
+    def _decide(self, chapter, is_front_matter=False):
         """Returns (is_included, reason). Follows the numbered steps in the module description."""
-        title = (getattr(chapter, "title", "") or "").strip()
-        if len(chapter.extracted_text) <= self.MINIMUM_CHARACTERS:
+        text = chapter.extracted_text
+        title = (getattr(chapter, "title", "") or "").strip() or text.split("\n", 1)[0].rstrip(".").strip()
+        if len(text) <= self.MINIMUM_CHARACTERS:
             return False, "too short"
+        if is_front_matter:
+            return False, "front matter"
         if match := self.NOT_STORY_TITLE.match(title):
             return False, match.group(1).lower()
+        if len(text) < self.LONGEST_COPYRIGHT_PAGE and "all rights reserved" in text.lower():
+            return False, "copyright"
         if match := self.STORY_EXTRA_TITLE.match(title):
             return True, match.group(1).lower()
+        if numbered_title(title):
+            return True, "chapter"
         if self.CHAPTER_FILE_NAME.search(chapter.get_name()):
             return True, "chapter"
         return False, "not recognised"
