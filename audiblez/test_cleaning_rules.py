@@ -362,6 +362,18 @@ def test_library_imports_a_copy_tracks_the_book_and_reads_its_status_from_the_fo
         assert Library(root).books == {}, "a broken library.json is an empty library, not a crash"
 
 
+def test_status_messages_get_their_colour_from_their_icon_and_success_fades_smoothly():
+    import wx
+    from audiblez.ui_status_banner import MessageKind, message_kind, mix_colours
+    assert message_kind("❌ Could not open book.epub") == MessageKind.ERROR
+    assert message_kind("⚠ Imported 3 books, 1 could not be read.") == MessageKind.WARNING
+    assert message_kind("✅ Done: book.m4b created") == MessageKind.SUCCESS
+    assert message_kind("Reading the book details ...") == MessageKind.INFO
+    green, grey = wx.Colour(200, 230, 200), wx.Colour(240, 240, 240)
+    assert mix_colours(green, grey, 0.0) == green and mix_colours(green, grey, 1.0) == grey
+    assert mix_colours(green, grey, 0.5) == wx.Colour(220, 235, 220), "half way"
+
+
 if __name__ == "__main__":
     all_tests = {name: function for name, function in globals().items() if name.startswith("test_")}
     for name, function in all_tests.items():

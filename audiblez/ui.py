@@ -17,7 +17,7 @@ WINDOW LAYOUT
     | Create       |          <- drag the divider ->                  |
     | (always seen)|                        |                         |
     +--------------+------------------------+-------------------------+
-    | StatusBanner: what the program is doing right now  |  summary   |
+    | StatusBanner: what the program is doing (red = error, green = done) |
     +-----------------------------------------------------------------+
 
     The panels live in ui_tool_column.py and ui_book_panels.py. This file connects them.
@@ -56,6 +56,7 @@ from audiblez.ui_book_panels import BookCard, ChapterListPanel, TextPreviewPanel
 from audiblez.ui_common import SPACING, describe_audio_length
 from audiblez.ui_font_dialog import FontDialog
 from audiblez.ui_library_dialog import LibraryDialog
+from audiblez.ui_status_banner import StatusBanner
 from audiblez.ui_tool_column import ToolColumn, open_folder_in_file_manager
 from audiblez.ui_voice_list import VoiceListDialog
 from audiblez.voice_library import VoiceSampleLibrary
@@ -73,24 +74,6 @@ EVENTS = {
     'CORE_CHAPTER_FINISHED': NewEvent(),
     'CORE_FINISHED': NewEvent()
 }
-
-
-# =============================================================================================
-# Status banner
-# =============================================================================================
-
-class StatusBanner:
-    """The bar at the bottom: what the program is doing right now (left), and a short summary (right)."""
-
-    def __init__(self, frame):
-        self.bar = frame.CreateStatusBar(2)
-        self.bar.SetStatusWidths([-3, -2])  # the left part gets 3/5 of the width
-
-    def show(self, message, percent=None):
-        self.bar.SetStatusText(f"{message}  ({percent}%)" if percent is not None else message, 0)
-
-    def show_summary(self, text):
-        self.bar.SetStatusText(text, 1)
 
 
 # =============================================================================================
@@ -273,7 +256,6 @@ class MainWindow(wx.Frame):
 
         self.create_menu()
         self.create_layout()
-        self.status = StatusBanner(self)
         self.status.show("Ready. Import an EPUB, or pick a book from the Library (1. Book, on the left).")
         self.tools.create_section.show_summary("Open a book first.", "-")
         self.restore_settings()
@@ -378,8 +360,12 @@ class MainWindow(wx.Frame):
         self.outer_splitter.SetSashGravity(0)  # when the window grows, only the right side grows
         self.outer_splitter.SetMinimumPaneSize(ToolColumn.NARROWEST)
 
-        root_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.status = StatusBanner(root)  # the coloured strip at the bottom (ui_status_banner.py)
+
+        root_sizer = wx.BoxSizer(wx.VERTICAL)
         root_sizer.Add(self.outer_splitter, 1, wx.EXPAND)
+        root_sizer.Add(wx.StaticLine(root), 0, wx.EXPAND)
+        root_sizer.Add(self.status, 0, wx.EXPAND)
         root.SetSizer(root_sizer)
         self.root = root
 
@@ -440,7 +426,8 @@ class MainWindow(wx.Frame):
         self.importing = False
         self.tools.file_section.set_book_buttons_enabled(True)
         new, already = self.import_summary["new"], self.import_summary["already"]
-        self.status.show(f"Imported {len(new)} books" + (f", {len(already)} were already in the library" if already else "")
+        icon = "⚠" if failed else "✅"  # the banner turns amber or green (ui_status_banner.py)
+        self.status.show(f"{icon} Imported {len(new)} books" + (f", {len(already)} were already in the library" if already else "")
                          + (f", {len(failed)} could not be read" if failed else "") + ".")
         if failed:
             details = "\n".join(f"• {name}\n    {reason}" for name, reason in failed)
@@ -499,7 +486,7 @@ class MainWindow(wx.Frame):
             removed = ", ".join(removed_classes) or "nothing"
             self.status.show(f"Picture text updated. Removed from the book: {removed}.")
         elif imported_from:
-            self.status.show(f"Imported into the library and opened: \"{self.book_title}\". "
+            self.status.show(f"✅ Imported into the library and opened: \"{self.book_title}\". "
                              "Check the ticked sections, then create the audiobook.")
         else:
             self.status.show(f"Ready: \"{self.book_title}\" is open. Check the ticked sections, then create the audiobook.")

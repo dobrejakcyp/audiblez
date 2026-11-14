@@ -120,7 +120,7 @@ removed is shown in yellow. **Highlight any text and right-click** to hear it wi
 It lists every font on your system, recommends good serif reading fonts you have installed, and lets you keep
 your own favourites. Changes are shown live; Cancel restores the previous font.
 
-The **status bar** at the bottom always says what the program is doing (opening a book shows each step).
+The **status banner** at the bottom always says what the program is doing (opening a book shows each step). Errors flash red and warnings flash amber, and both stay coloured until the next message or until you click ✕; a finished job shows green and then fades.
 Your choices — voice, speed, library folder, window size, column width, font — are saved in `settings.json` in the
 project folder; delete it to go back to the defaults.
 
