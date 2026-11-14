@@ -26,6 +26,7 @@ QUOTE_TAG = "blockquote"  # any line from inside a <blockquote>, also a <p> nest
 SPOKEN_MARKER = "spoken marker"  # the added "Quote." and "End quote." lines
 SUBHEADING = "subheading"  # a heading inside a chapter ("THE CULTURAL BREW"); spoken with a pause around it
 HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
+TABLE_CELL = "td"  # any line from inside a <table>
 
 
 # =============================================================================================
@@ -168,6 +169,11 @@ class EpubTextExtractor:
     # A heading inside a chapter is often an ordinary <p> in capitals ("STEWART BRAND"), not an <h2>.
     # Such a line counts as a subheading when it is short, (nearly) all capitals and followed by
     # longer text. See _mark_subheadings.
+    # A poem printed one short line per paragraph would be read as a string of tiny sentences
+    # ("I like to think (and." ...). A run of short lines like that is joined into flowing text.
+    # See _join_verse_lines.
+    LONGEST_VERSE_LINE = 50  # characters
+    FEWEST_VERSE_LINES = 3
     LONGEST_SUBHEADING = 60  # characters
     MOST_SUBHEADING_WORDS = 8
     SMALLEST_CAPITALS_SHARE = 0.8  # of its letters
@@ -227,16 +233,67 @@ class EpubTextExtractor:
         self._remove_unwanted_elements(page, report)
         lines = []  # (line, kind); kind = (tag, css classes) of the element the line came from
         for block in page.find_all(self.TEXT_BLOCK_TAGS):
-            line = self._make_speakable_line(self._text_of_block_itself(block), report)
-            if line:
-                report.record_kept_line(block, line)
-                tag = QUOTE_TAG if block.name == "blockquote" or block.find_parent("blockquote") else block.name
-                lines.append((line, (tag, tuple(block.get("class") or ()))))
+            text = self._clean_text(self._text_of_block_itself(block), report)
+            if text:
+                report.record_kept_line(block, self._with_sentence_ending(text))  # counted as it is read
+                tag = block.name
+                if block.name == "blockquote" or block.find_parent("blockquote"):
+                    tag = QUOTE_TAG
+                elif block.find_parent("table"):
+                    tag = TABLE_CELL  # each cell stays its own line: never joined as verse, never a subheading
+                lines.append((text, (tag, tuple(block.get("class") or ()))))
+        lines = self._join_verse_lines(lines)  # before the periods are added: verse lines rarely end in one
+        lines = [(self._with_sentence_ending(text), kind) for text, kind in lines]
         lines = self._mark_subheadings(lines)
         lines = self._announce_quotes(lines)
         if line_kinds is not None:
             line_kinds.extend(kind for _line, kind in lines)
         return "".join(line + "\n" for line, _kind in lines)
+
+    def _join_verse_lines(self, lines):
+        """
+        Join every run of verse lines into ONE line, so the poem is read as flowing sentences.
+        A run counts as verse when it has at least FEWEST_VERSE_LINES lines of the same kind (same tag
+        and css classes), every line is short, and most of them do not end a sentence. List items and
+        headings are never joined: there each line really is its own item; neither are code or notation.
+        Publishers often give the FIRST line of a poem a style of its own ("calibre48", then "calibre1"
+        for the rest), so a short line just before a verse run that does not end a sentence joins it too.
+        """
+        joined, run = [], []
+
+        def close_run():
+            if self._is_verse(run):
+                first_line = joined[-1] if joined else None
+                if first_line and first_line[1][0] == run[0][1][0] and self._is_verse_line(first_line[0]) \
+                        and not self._ends_sentence(first_line[0]):
+                    run.insert(0, joined.pop())
+                joined.append((" ".join(text for text, _kind in run), run[-1][1]))
+            else:
+                joined.extend(run)
+            run.clear()
+
+        for text, kind in lines:
+            if run and kind != run[0][1]:
+                close_run()
+            run.append((text, kind))
+        close_run()
+        return joined
+
+    def _is_verse(self, run):
+        if len(run) < self.FEWEST_VERSE_LINES or run[0][1][0] in ("li", "dd", "dt", TABLE_CELL, *HEADING_TAGS):
+            return False
+        if not all(self._is_verse_line(text) for text, _kind in run):
+            return False
+        return sum(self._ends_sentence(text) for text, _kind in run) <= len(run) / 2
+
+    def _is_verse_line(self, text):
+        """Short, and words rather than code ("x = 0;") or notation ("A1 B1", "0 •")."""
+        letters = sum(character.isalpha() for character in text)
+        return (len(text) <= self.LONGEST_VERSE_LINE and not any(character in text for character in "=_{}<>[]|#")
+                and letters >= 0.6 * len(text.replace(" ", "")))
+
+    def _ends_sentence(self, text):
+        return text.rstrip("’)]").endswith(self.SENTENCE_ENDINGS)
 
     def _mark_subheadings(self, lines):
         """
@@ -248,7 +305,7 @@ class EpubTextExtractor:
         marked = []
         for number, (line, (tag, classes)) in enumerate(lines):
             next_line = lines[number + 1][0] if number + 1 < len(lines) else ""
-            if tag not in HEADING_TAGS and tag != QUOTE_TAG and self._looks_like_subheading(line, next_line):
+            if tag not in (*HEADING_TAGS, QUOTE_TAG, TABLE_CELL) and self._looks_like_subheading(line, next_line):
                 tag = SUBHEADING
             marked.append((line, (tag, classes)))
         return marked
@@ -333,6 +390,10 @@ class EpubTextExtractor:
 
     def _make_speakable_line(self, text, report):
         """Apply the text edits; return "" when nothing speakable is left, else a line ending in a period."""
+        return self._with_sentence_ending(self._clean_text(text, report))
+
+    def _clean_text(self, text, report):
+        """Apply the text edits and tidy the spaces; return "" when nothing speakable is left."""
         for text_edit in self.text_edits:
             edited_text = text_edit.apply(text)
             report.record_text_edit(text_edit, len(text) - len(edited_text))
@@ -343,8 +404,12 @@ class EpubTextExtractor:
         text = " ".join(text.split())
         if not any(character.isalnum() for character in text):  # e.g. a lone "* * *"
             return ""
-        if not text.rstrip("’)]").endswith(self.SENTENCE_ENDINGS):  # "Stop!’" already ends a sentence
-            text += "."  # gives the voice a pause at the end of headings and list items
+        return text
+
+    def _with_sentence_ending(self, text):
+        """Add a period unless the text already ends a sentence; it gives the voice a pause after headings."""
+        if text and not text.rstrip("’)]").endswith(self.SENTENCE_ENDINGS):  # "Stop!’" already ends a sentence
+            text += "."
         return text
 
     # ---- chapter titles ----------------------------------------------------------------------

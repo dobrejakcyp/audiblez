@@ -499,6 +499,21 @@ def test_headings_are_spoken_as_separate_blocks_with_a_pause_around_them():
         "edited text whose kinds no longer match: one block, as before"
 
 
+def test_a_poem_printed_line_by_line_is_read_as_flowing_text():
+    before = "<p>" + "He captured the new mood in a short poem, which began like this. " * 2 + "</p>"
+    poem = ('<p class="first">Down by the river</p><p class="verse">the boats are sleeping,</p>'
+            '<p class="verse">the gulls are keeping</p><p class="verse">watch on the shore.</p>')
+    text, _ = read_aloud(before + poem + "<p>THE NEXT SECTION</p>" + before)
+    lines = text.splitlines()
+    assert lines[1] == "Down by the river the boats are sleeping, the gulls are keeping watch on the shore.", lines
+    code = "<p class='c'>int x = 0;</p><p class='c'>x = x + 1;</p><p class='c'>return x;</p>"
+    assert len(read_aloud(code)[0].splitlines()) == 3, "code is not verse"
+    items = "<ul><li>Apples</li><li>Pears</li><li>Plums</li></ul>"
+    assert read_aloud(items)[0] == "Apples.\nPears.\nPlums.\n", "list items stay separate"
+    table = "<table><tr><td><p>Ancient Athens</p></td><td><p>Rome</p></td><td><p>Carthage</p></td></tr></table>"
+    assert len(read_aloud(table)[0].splitlines()) == 3, "table cells stay separate"
+
+
 if __name__ == "__main__":
     all_tests = {name: function for name, function in globals().items() if name.startswith("test_")}
     for name, function in all_tests.items():

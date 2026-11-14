@@ -116,7 +116,9 @@ chapter and part headings and subheadings light blue, quotations lavender, pictu
 small legend sits above the text). Every chapter starts with a spoken heading such as "Part 1. Chapter One. Oil
 Drops.", and quoted extracts are framed by "Quote." and "End quote." — all of them are ordinary lines you can
 edit or delete. Subheadings inside chapters — real headings, or short lines in capitals such as "THE CULTURAL
-BREW" — are spoken with a short pause before and after, the way a narrator marks a new section. **Search the book** (the box above the text, or Ctrl+F) finds a word in every section and jumps
+BREW" — are spoken with a short pause before and after, the way a narrator marks a new section. A poem printed
+one short line per paragraph is joined into flowing text, so it is not read as a string of tiny sentences (lists,
+table cells and code stay line by line). **Search the book** (the box above the text, or Ctrl+F) finds a word in every section and jumps
 from place to place with ◀ ▶ (or Enter / Shift+Enter). **Highlight any text and right-click** to hear it with the chosen voice and speed.
 **Aa Font…** (or View → Text font) chooses the font of this text:
 
