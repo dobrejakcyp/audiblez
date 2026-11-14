@@ -39,6 +39,8 @@ SLOW WORK RUNS IN THE BACKGROUND
 """
 import threading
 import traceback
+import warnings
+import zipfile
 from tempfile import gettempdir
 from pathlib import Path
 
@@ -95,6 +97,34 @@ class StatusBanner:
 # Background work
 # =============================================================================================
 
+def why_book_cannot_be_read(error):
+    """
+    A short reason in plain words when an EPUB file itself is the problem (damaged, incomplete
+    download, not an EPUB). Returns None for any other error: that is a bug in this program, and
+    the caller prints the full traceback so it can be found.
+    """
+    from ebooklib.epub import EpubException
+    if isinstance(error, zipfile.BadZipFile):
+        return "the file is damaged or not completely downloaded"
+    if isinstance(error, KeyError):  # the EPUB's table of files names a file that is not in it
+        return "a part of the book is missing from the file (damaged download?)"
+    if isinstance(error, EpubException):
+        return f"this is not a valid EPUB ({error})"
+    if isinstance(error, OSError):
+        return f"Windows could not read the file ({error.strerror or error})"
+    return None
+
+
+def report_error(file_name, error):
+    """Print one line for a damaged book, the full traceback for anything else. Returns the reason to show."""
+    reason = why_book_cannot_be_read(error)
+    if reason:
+        print(f"Skipped {file_name}: {reason} [{type(error).__name__}: {error}]")
+        return reason
+    traceback.print_exc()
+    return str(error)
+
+
 class BookLoader(threading.Thread):
     """
     Reads and cleans an EPUB in the background and reports each step to the status banner.
@@ -139,8 +169,8 @@ class BookLoader(threading.Thread):
             wx.CallAfter(self.window.show_loaded_book, self.file_path, metadata, sections,
                          picture_text_groups, self.removed_classes, imported_from)
         except Exception as error:
-            traceback.print_exc()
-            wx.CallAfter(self.window.show_loading_failed, self.file_path, error)
+            reason = report_error(Path(self.file_path).name, error)
+            wx.CallAfter(self.window.show_loading_failed, self.file_path, reason)
 
 
 class BookImporter(threading.Thread):
@@ -168,8 +198,7 @@ class BookImporter(threading.Thread):
                 metadata = BookMetadata.from_epub(epub.read_epub(file_path))
                 copy = self.window.library.copy_into_library(file_path, metadata)
             except Exception as error:
-                traceback.print_exc()
-                failed.append((name, str(error)))
+                failed.append((name, report_error(name, error)))
                 continue
             wx.CallAfter(self.window.record_imported_book, copy, metadata, file_path)
         wx.CallAfter(self.window.show_import_finished, failed)
@@ -415,8 +444,8 @@ class MainWindow(wx.Frame):
                          + (f", {len(failed)} could not be read" if failed else "") + ".")
         if failed:
             details = "\n".join(f"• {name}\n    {reason}" for name, reason in failed)
-            wx.MessageBox(f"These files could not be read, so they were not imported. They may be damaged or "
-                          f"not completely downloaded:\n\n{details}", "Some books were not imported",
+            wx.MessageBox(f"These files could not be read, so they were not imported. Downloading them again "
+                          f"usually helps:\n\n{details}", "Some books were not imported",
                           wx.OK | wx.ICON_WARNING, parent=self)
         self.on_show_library(None)
 
@@ -513,10 +542,10 @@ class MainWindow(wx.Frame):
         self.status.show("Applying the picture text choices ...")
         self.open_epub(self.epub_path, removed_classes)
 
-    def show_loading_failed(self, file_path, error):
+    def show_loading_failed(self, file_path, reason):
         self.tools.file_section.set_book_buttons_enabled(True)
         self.tools.set_book_actions_enabled(bool(self.book_sections))
-        self.status.show(f"❌ Could not open {Path(file_path).name}: {error}")
+        self.status.show(f"❌ Could not open {Path(file_path).name}: {reason}")
 
     # ---- called by the book panels -----------------------------------------------------------
 
@@ -689,6 +718,9 @@ class MainWindow(wx.Frame):
 
 def main():
     print('Starting GUI...')
+    # ebooklib warns about its own future changes for every book it reads; they are not about your books
+    warnings.filterwarnings("ignore", category=UserWarning, module=r"ebooklib\.")
+    warnings.filterwarnings("ignore", category=FutureWarning, module=r"ebooklib\.")
     app = wx.App(False)
     frame = MainWindow(None, "Audiblez - Generate Audiobooks from E-books")
     frame.Show(True)
