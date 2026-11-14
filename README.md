@@ -18,7 +18,7 @@ Audiblez turns `.epub` e-books into `.m4b` audiobooks with chapters, using the
 
 ## What is different from the original
 
-| | Original 0.4.9 | This fork (0.5.0+dobrejakcyp) |
+| | Original 0.4.9 | This fork (0.6.0+dobrejakcyp) |
 |---|---|---|
 | **Text cleaning** | captions with standard names are skipped | footnotes, note markers, indexes, contents lists and page numbers are removed too; you can see what was removed and why (`--report`) |
 | **Picture text** | — | captions and photo credits are **found by their position next to pictures**, whatever the publisher called them; you can jump to each one and remove them |
@@ -215,8 +215,8 @@ audiblez/
 Run the self-checks with `uv run python -m audiblez.test_cleaning_rules`. Each module starts with a short
 explanation of what it does and why, written so it can be read without knowing the rest of the program.
 
-The version `0.5.0+dobrejakcyp` uses a local version label: it marks a fork build, so it cannot be confused
-with an official Audiblez release (and cannot be published to PyPI under the original name).
+The version `0.6.0+dobrejakcyp` uses a local version label: it marks a fork build, so it cannot be confused
+with an official Audiblez release (and cannot be published to PyPI under the original name). What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits and licence
 

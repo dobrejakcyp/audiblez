@@ -9,4 +9,4 @@ under the original name by accident).
 Keep __version__ the same as `version` in pyproject.toml; a self-check in
 test_cleaning_rules.py fails if they differ.
 """
-__version__ = "0.5.0+dobrejakcyp"
+__version__ = "0.6.0+dobrejakcyp"
