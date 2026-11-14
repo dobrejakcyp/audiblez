@@ -336,14 +336,27 @@ def strfdelta(tdelta, fmt='{D:02}d {H:02}h {M:02}m {S:02}s'):
     return f.format(fmt, **values)
 
 
+def concat_list_line(wav_file):
+    """
+    One line of the file list for ffmpeg's concat step: file '<path>'. The path is between single
+    quotes, so an apostrophe IN the path ("The World's ...") must be written as '\\'' - otherwise it
+    ends the quote early and ffmpeg looks for a folder that does not exist.
+    """
+    return "file '" + str(wav_file).replace("'", "'\\''") + "'\n"
+
+
 def concat_wavs_with_ffmpeg(chapter_files, work_folder, filename):
+    """Join the chapter .wav files into one temporary file. Returns its path, or None if ffmpeg failed."""
     wav_list_txt = Path(work_folder) / filename.replace('.epub', '_wav_list.txt')
     with open(wav_list_txt, 'w', encoding='utf-8') as f:
         for wav_file in chapter_files:
-            f.write(f"file '{wav_file}'\n")
+            f.write(concat_list_line(wav_file))
     concat_file_path = Path(work_folder) / filename.replace('.epub', '.tmp.mp4')
-    subprocess.run(['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', wav_list_txt, '-c', 'copy', concat_file_path])
-    Path(wav_list_txt).unlink()
+    proc = subprocess.run(['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', wav_list_txt, '-c', 'copy', concat_file_path])
+    Path(wav_list_txt).unlink(missing_ok=True)
+    if proc.returncode != 0 or not concat_file_path.exists():
+        print('Joining the chapter files failed (see the ffmpeg messages above); the .wav chapter files are kept.')
+        return None
     return concat_file_path
 
 
@@ -351,6 +364,8 @@ def create_m4b(chapter_files, filename, cover_image, output_folder, work_folder=
     """Join the chapters into output_folder/<name>.m4b. Helper files are made in work_folder (default: output_folder)."""
     work_folder = work_folder or output_folder
     concat_file_path = concat_wavs_with_ffmpeg(chapter_files, work_folder, filename)
+    if concat_file_path is None:
+        return False  # nothing to compress; the finished chapters stay, so Create can simply try again
     final_filename = Path(output_folder) / filename.replace('.epub', '.m4b')
     chapters_txt_path = Path(work_folder) / "chapters.txt"
     print('Creating M4B file...')
@@ -378,7 +393,7 @@ def create_m4b(chapter_files, filename, cover_image, output_folder, work_folder=
         '-f', 'mp4',  # format
         f'{final_filename}'  # output file
     ])
-    Path(concat_file_path).unlink()
+    Path(concat_file_path).unlink(missing_ok=True)
     if proc.returncode == 0 and final_filename.exists() and final_filename.stat().st_size > 0:
         print(f'{final_filename} created. Enjoy your audiobook.')
         for f in [*chapter_files, chapters_txt_path, *([cover_file_path] if cover_image else [])]:

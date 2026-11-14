@@ -514,6 +514,12 @@ def test_a_poem_printed_line_by_line_is_read_as_flowing_text():
     assert len(read_aloud(table)[0].splitlines()) == 3, "table cells stay separate"
 
 
+def test_apostrophes_in_folder_names_are_escaped_for_ffmpeg():
+    from audiblez.core import concat_list_line
+    line = concat_list_line(r"C:\Library\Chris Miller - The World's Chips\work\chapter_1.wav")
+    assert line == "file 'C:\\Library\\Chris Miller - The World'\\''s Chips\\work\\chapter_1.wav'\n", line
+
+
 if __name__ == "__main__":
     all_tests = {name: function for name, function in globals().items() if name.startswith("test_")}
     for name, function in all_tests.items():
