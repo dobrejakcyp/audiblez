@@ -11,7 +11,6 @@ time the window opens (see library.py), so it is always up to date. The list its
 """
 import wx
 
-from audiblez.library import BookStatus
 from audiblez.ui_common import SPACING
 from audiblez.ui_tool_column import open_folder_in_file_manager
 
@@ -76,12 +75,12 @@ class LibraryDialog(wx.Dialog):
 
     def update_buttons(self):
         book = self.selected_book()
-        self.open_button.Enable(book is not None and self.library.status_of(book) != BookStatus.FILES_MISSING)
+        self.open_button.Enable(book is not None and self.library.has_epub(book))
         self.folder_button.Enable(book is not None and self.library.book_folder(book).is_dir())
 
     def open_selected_book(self):
         book = self.selected_book()
-        if book is None or self.library.status_of(book) == BookStatus.FILES_MISSING:
+        if book is None or not self.library.has_epub(book):
             return
         self.chosen_epub_path = str(self.library.epub_path(book))
         self.EndModal(wx.ID_OK)

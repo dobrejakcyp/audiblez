@@ -48,7 +48,7 @@ class BookStatus:
 class LibraryBook:
     """One book in library.json. Dates are text like "2026-11-14 15:30", so the file stays readable."""
     folder_name: str  # the book's own folder inside the library, "Author - Title"
-    epub_file: str  # the file name of the EPUB copy inside that folder
+    epub_file: str  # the file name of the EPUB copy inside that folder ("" for an audiobook without its EPUB)
     title: str = ""
     author: str = ""
     imported_from: str = ""  # where the original EPUB was when it was imported
@@ -90,7 +90,7 @@ class Library:
             return
         known_fields = {field.name for field in fields(LibraryBook)}
         for entry in saved.get("books", []) if isinstance(saved, dict) else []:
-            if isinstance(entry, dict) and entry.get("folder_name") and entry.get("epub_file"):
+            if isinstance(entry, dict) and entry.get("folder_name"):
                 book = LibraryBook(**{name: str(value) for name, value in entry.items() if name in known_fields})
                 self.books[book.folder_name] = book
 
@@ -112,6 +112,10 @@ class Library:
 
     def epub_path(self, book):
         return self.book_folder(book) / book.epub_file
+
+    def has_epub(self, book):
+        """False for an audiobook whose EPUB is gone (or was never there): such a book cannot be opened."""
+        return bool(book.epub_file) and self.epub_path(book).is_file()
 
     def is_in_library(self, epub_path):
         """True for an EPUB that sits in a book folder of this library (Library/<book folder>/<file>.epub)."""
@@ -193,10 +197,10 @@ class Library:
     def status_of(self, book):
         """Read from the book's folder, so it is always true (see the top of this module)."""
         folder = self.book_folder(book)
-        if not self.epub_path(book).exists():
+        if book.audiobook_file and (folder / book.audiobook_file).is_file():
+            return BookStatus.AUDIOBOOK_MADE  # even without its EPUB: the audiobook is what matters most
+        if not self.has_epub(book):
             return BookStatus.FILES_MISSING
-        if book.audiobook_file and (folder / book.audiobook_file).exists():
-            return BookStatus.AUDIOBOOK_MADE
         work_folder = folder / WORK_FOLDER_NAME
         if work_folder.is_dir() and any(work_folder.glob("*.wav")):
             return BookStatus.PARTLY_MADE

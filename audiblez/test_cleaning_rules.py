@@ -351,6 +351,10 @@ def test_library_imports_a_copy_tracks_the_book_and_reads_its_status_from_the_fo
         copy.unlink()
         assert reloaded.status_of(reloaded.book_for_file(copy)) == BookStatus.FILES_MISSING
 
+        (copy.parent / "Yuval Noah Harari - Nexus.m4b").write_bytes(b"audio")
+        assert reloaded.status_of(reloaded.book_for_file(copy)) == BookStatus.AUDIOBOOK_MADE, "an audiobook without its EPUB"
+        assert not reloaded.has_epub(reloaded.book_for_file(copy)), "...cannot be opened"
+
         (root / "library.json").write_text("{ broken", encoding="utf-8")
         assert Library(root).books == {}, "a broken library.json is an empty library, not a crash"
 
