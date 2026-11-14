@@ -24,6 +24,8 @@ from audiblez.spoken_headings import add_spoken_headings
 # The window colours lines by these (ui_book_panels.TextPreviewPanel).
 QUOTE_TAG = "blockquote"  # any line from inside a <blockquote>, also a <p> nested in it
 SPOKEN_MARKER = "spoken marker"  # the added "Quote." and "End quote." lines
+SUBHEADING = "subheading"  # a heading inside a chapter ("THE CULTURAL BREW"); spoken with a pause around it
+HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
 
 
 # =============================================================================================
@@ -163,6 +165,13 @@ class EpubTextExtractor:
     LONGEST_ANNOUNCED_QUOTE = 3000  # characters
     LARGEST_QUOTE_SHARE = 0.5  # of the page's text
 
+    # A heading inside a chapter is often an ordinary <p> in capitals ("STEWART BRAND"), not an <h2>.
+    # Such a line counts as a subheading when it is short, (nearly) all capitals and followed by
+    # longer text. See _mark_subheadings.
+    LONGEST_SUBHEADING = 60  # characters
+    MOST_SUBHEADING_WORDS = 8
+    SMALLEST_CAPITALS_SHARE = 0.8  # of its letters
+
     def __init__(self, removal_rules, text_edits, report=None):
         self.removal_rules = removal_rules
         self.text_edits = text_edits
@@ -223,10 +232,40 @@ class EpubTextExtractor:
                 report.record_kept_line(block, line)
                 tag = QUOTE_TAG if block.name == "blockquote" or block.find_parent("blockquote") else block.name
                 lines.append((line, (tag, tuple(block.get("class") or ()))))
+        lines = self._mark_subheadings(lines)
         lines = self._announce_quotes(lines)
         if line_kinds is not None:
             line_kinds.extend(kind for _line, kind in lines)
         return "".join(line + "\n" for line, _kind in lines)
+
+    def _mark_subheadings(self, lines):
+        """
+        Give the kind SUBHEADING to a short line in capitals that is followed by a longer line
+        ("THE CULTURAL BREW." before its paragraph): a heading the publisher wrote as a normal <p>.
+        Real <h1>..<h6> headings keep their own tag; both kinds are coloured like headings in the
+        window and spoken with a pause before and after (spoken_blocks.py).
+        """
+        marked = []
+        for number, (line, (tag, classes)) in enumerate(lines):
+            next_line = lines[number + 1][0] if number + 1 < len(lines) else ""
+            if tag not in HEADING_TAGS and tag != QUOTE_TAG and self._looks_like_subheading(line, next_line):
+                tag = SUBHEADING
+            marked.append((line, (tag, classes)))
+        return marked
+
+    def _looks_like_subheading(self, line, next_line):
+        words = line.rstrip(".").split()
+        letters = [character for character in line if character.isalpha()]
+        if not (len(letters) >= 3 and len(line) <= self.LONGEST_SUBHEADING and len(words) <= self.MOST_SUBHEADING_WORDS):
+            return False
+        if line.rstrip(".").endswith(("!", "?", "…", ":", ";", ",")):
+            return False  # a short exclamation, question or unfinished phrase in capitals is not a heading
+        if any(character in line for character in "=_{}<>[]|#"):
+            return False  # code ("STATUS_OK = 0,") or formulas
+        if len(letters) < 0.6 * len(line.replace(" ", "")):
+            return False  # mostly digits and signs: notation such as "E4 F2 G2 H2"
+        capitals = sum(character.isupper() for character in letters) / len(letters)
+        return capitals >= self.SMALLEST_CAPITALS_SHARE and len(next_line) > len(line)
 
     def _announce_quotes(self, lines):
         """Put "Quote." before and "End quote." after every run of quote lines that looks like a real quotation."""

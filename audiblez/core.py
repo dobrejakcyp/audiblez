@@ -10,6 +10,7 @@
 #   - main() got two new optional arguments: `text_extractor` and `stop_requested`.
 #   - Voice synthesis, ffmpeg and m4b creation are otherwise unchanged.
 # The original code is in the git history (tag v0.4.9).
+import functools
 import os
 import traceback
 from glob import glob
@@ -36,6 +37,7 @@ from pick import pick
 from audiblez.book_metadata import audiobook_file_name, find_cover, readable_author_name
 from audiblez.chapter_selection import find_good_chapters
 from audiblez.epub_text_extractor import CleaningReport, EpubTextExtractor
+from audiblez.spoken_blocks import PAUSE_AROUND_HEADING, SpokenBlock, spoken_blocks
 
 sample_rate = 24000
 
@@ -189,14 +191,20 @@ def convert(file_path, voice, pick_manually, speed, output_folder, max_chapters,
             print(f'Skipping empty chapter {i}')
             chapter_wav_files.remove(chapter_wav_path)
             continue
+        # Headings are spoken on their own with silence around them (see spoken_blocks.py)
+        blocks = spoken_blocks(text, getattr(chapter, 'line_kinds', None))
         if i == 1:
-            # add intro text
-            text = f'{title} – {creator}.\n\n' + text
+            blocks.insert(0, SpokenBlock(f'{title} – {creator}.\n', PAUSE_AROUND_HEADING))  # intro text
         start_time = time.time()
         if post_event: post_event('CORE_CHAPTER_STARTED', chapter_index=chapter.chapter_index)
-        audio_segments = gen_audio_segments(
-            pipeline, text, voice, speed, stats, post_event=post_event, max_sentences=max_sentences,
-            stop_requested=stop_requested)
+        audio_segments = []
+        for block in blocks:
+            block_audio = gen_audio_segments(
+                pipeline, block.text, voice, speed, stats, post_event=post_event, max_sentences=max_sentences,
+                stop_requested=stop_requested)
+            audio_segments += block_audio
+            if block_audio and block.pause_after:
+                audio_segments.append(silence(block.pause_after))
         if audio_segments:
             final_audio = np.concatenate(audio_segments)
             soundfile.write(chapter_wav_path, final_audio, sample_rate)
@@ -249,12 +257,23 @@ def print_selected_chapters(document_chapters, chapters):
     ], headers=['#', 'Chapter', 'Text Length', 'Selected', 'First words']))
 
 
-def gen_audio_segments(pipeline, text, voice, speed, stats=None, max_sentences=None, post_event=None,
-                       stop_requested=None):
+def silence(seconds):
+    """`seconds` of silence in the audio format Kokoro produces."""
+    return np.zeros(int(sample_rate * seconds), dtype=np.float32)
+
+
+@functools.lru_cache(maxsize=1)
+def sentence_splitter():
+    """spaCy's sentence splitter, loaded once (a chapter is spoken in several blocks)."""
     nlp = spacy.load('xx_ent_wiki_sm')
     nlp.add_pipe('sentencizer')
+    return nlp
+
+
+def gen_audio_segments(pipeline, text, voice, speed, stats=None, max_sentences=None, post_event=None,
+                       stop_requested=None):
     audio_segments = []
-    doc = nlp(text)
+    doc = sentence_splitter()(text)
     sentences = list(doc.sents)
     for i, sent in enumerate(sentences):
         if max_sentences and i > max_sentences: break

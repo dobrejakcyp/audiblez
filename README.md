@@ -112,10 +112,11 @@ read aloud, grey parts are skipped; the **Why** column explains each decision ("
 "copyright", …). You can change any tick. Empty files (cover, title pages) are hidden unless you ask for them.
 
 **Text (right)** — exactly what will be read aloud, and you can edit it. Lines are coloured by what they are:
-chapter and part headings light blue, quotations lavender, picture text that has not been removed yellow (a
+chapter and part headings and subheadings light blue, quotations lavender, picture text that has not been removed yellow (a
 small legend sits above the text). Every chapter starts with a spoken heading such as "Part 1. Chapter One. Oil
 Drops.", and quoted extracts are framed by "Quote." and "End quote." — all of them are ordinary lines you can
-edit or delete. **Search the book** (the box above the text, or Ctrl+F) finds a word in every section and jumps
+edit or delete. Subheadings inside chapters — real headings, or short lines in capitals such as "THE CULTURAL
+BREW" — are spoken with a short pause before and after, the way a narrator marks a new section. **Search the book** (the box above the text, or Ctrl+F) finds a word in every section and jumps
 from place to place with ◀ ▶ (or Enter / Shift+Enter). **Highlight any text and right-click** to hear it with the chosen voice and speed.
 **Aa Font…** (or View → Text font) chooses the font of this text:
 
@@ -199,6 +200,7 @@ audiblez/
   chapter_selection.py          which parts are read, with titles and reasons
   picture_text_detector.py      captions and credits found by their position
   spoken_headings.py            "Chapter One. ..." and "Part 1." spoken at the start of chapters
+  spoken_blocks.py              the pauses around headings and subheadings when speaking
   book_search.py                the search box: every place a text occurs in the book
   book_metadata.py              title, author (also "Surname, First" -> "First Surname"), ISBN, cover, links, file names
   voice_library.py, voices.py   languages, voices and the offline samples

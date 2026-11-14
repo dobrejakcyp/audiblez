@@ -475,6 +475,30 @@ def test_every_line_stays_one_line_so_the_colours_match_the_text():
     assert len(kinds) == len(text.split("\n")[:-1]) == 2
 
 
+def test_subheadings_in_capitals_are_recognised_but_code_and_notation_are_not():
+    from audiblez.epub_text_extractor import EpubTextExtractor, SUBHEADING
+    paragraph = "<p>" + "The personal computer was made possible by many advances. " * 3 + "</p>"
+    for html, expected in [("<p>THE CULTURAL BREW</p>", True), ("<p>“AS WE MAY THINK”</p>", True),
+                           ("<h3>The Luxury Trap</h3>", True), ("<p>STOP!</p>", False),
+                           ("<p>STATUS_OK = 0,</p>", False), ("<p>E4 F2 G2 H2</p>", False),
+                           ("<p>A normal short line.</p>", False)]:
+        kinds = []
+        EpubTextExtractor.with_default_rules().extract_text_from_html(html + paragraph, line_kinds=kinds)
+        assert (kinds[0][0] in (SUBHEADING, "h3")) == expected, html  # a real <h3> keeps its own tag
+
+
+def test_headings_are_spoken_as_separate_blocks_with_a_pause_around_them():
+    from audiblez.spoken_blocks import PAUSE_AROUND_HEADING, spoken_blocks
+    text = "Chapter 8. The Personal Computer.\nFirst paragraph.\nSecond paragraph.\nTHE CULTURAL BREW.\nMore text.\n"
+    kinds = [("spoken heading", ()), ("p", ()), ("p", ()), ("subheading", ()), ("p", ())]
+    blocks = [(block.text, block.pause_after) for block in spoken_blocks(text, kinds)]
+    assert blocks == [("Chapter 8. The Personal Computer.\n", PAUSE_AROUND_HEADING),
+                      ("First paragraph.\nSecond paragraph.\n", PAUSE_AROUND_HEADING),
+                      ("THE CULTURAL BREW.\n", PAUSE_AROUND_HEADING), ("More text.\n", 0.0)], blocks
+    assert [(b.text, b.pause_after) for b in spoken_blocks(text, kinds[:2])] == [(text, 0.0)], \
+        "edited text whose kinds no longer match: one block, as before"
+
+
 if __name__ == "__main__":
     all_tests = {name: function for name, function in globals().items() if name.startswith("test_")}
     for name, function in all_tests.items():

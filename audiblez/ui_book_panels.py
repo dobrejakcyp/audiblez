@@ -14,7 +14,7 @@ import wx
 import wx.adv
 from PIL import Image
 
-from audiblez.epub_text_extractor import QUOTE_TAG, SPOKEN_MARKER
+from audiblez.epub_text_extractor import HEADING_TAGS, QUOTE_TAG, SPOKEN_MARKER, SUBHEADING
 from audiblez.fonts import DEFAULT_FONT_SIZE, LARGEST_FONT_SIZE, SMALLEST_FONT_SIZE
 from audiblez.spoken_headings import SPOKEN_HEADING
 from audiblez.ui_common import SPACING, bold, describe_audio_length, make_text_font, set_wrapped_text
@@ -262,7 +262,7 @@ class TextPreviewPanel(wx.Panel):
     HIGHLIGHT = wx.TextAttr(wx.BLACK, wx.Colour(255, 228, 130))  # picture text: black on yellow (it asks for action)
     HEADING_COLOUR = wx.Colour(220, 232, 246)  # muted blue
     QUOTE_COLOUR = wx.Colour(236, 230, 246)  # muted lavender
-    HEADING_TAGS = {SPOKEN_HEADING, "h1", "h2", "h3", "h4", "h5", "h6"}
+    HEADING_TAGS = {SPOKEN_HEADING, SUBHEADING, *HEADING_TAGS}
     QUOTE_TAGS = {QUOTE_TAG, SPOKEN_MARKER}
     TIP = "Tip: highlight some text and right-click to hear it."
 
