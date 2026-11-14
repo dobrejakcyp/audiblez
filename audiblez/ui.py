@@ -143,6 +143,38 @@ class BookLoader(threading.Thread):
             wx.CallAfter(self.window.show_loading_failed, self.file_path, error)
 
 
+class BookImporter(threading.Thread):
+    """
+    Imports several EPUBs at once (Import with more than one file chosen): reads each book's details,
+    copies it into the library and hands it to the window, which records it in library.json.
+    No book is opened; the Library window shows them all at the end. A file that cannot be read
+    (a damaged or unfinished download) is skipped and named in the summary.
+    """
+
+    def __init__(self, file_paths, window):
+        super().__init__(daemon=True)
+        self.file_paths = list(file_paths)
+        self.window = window
+
+    def run(self):
+        from ebooklib import epub
+        from audiblez.book_metadata import BookMetadata
+        failed = []  # (file name, reason)
+        for number, file_path in enumerate(self.file_paths, start=1):
+            name = Path(file_path).name
+            wx.CallAfter(self.window.status.show, f"Importing {number} of {len(self.file_paths)}: {name}",
+                         (number - 1) * 100 // len(self.file_paths))
+            try:
+                metadata = BookMetadata.from_epub(epub.read_epub(file_path))
+                copy = self.window.library.copy_into_library(file_path, metadata)
+            except Exception as error:
+                traceback.print_exc()
+                failed.append((name, str(error)))
+                continue
+            wx.CallAfter(self.window.record_imported_book, copy, metadata, file_path)
+        wx.CallAfter(self.window.show_import_finished, failed)
+
+
 class CoreThread(threading.Thread):
     """
     Runs core.main() in the background and forwards its progress to the window as events.
@@ -199,6 +231,8 @@ class MainWindow(wx.Frame):
         self.synthesis_in_progress = False
         self.reading_aloud = False  # True while a piece of text is being prepared for reading aloud
         self.reading_cancelled = False  # set by "Stop reading" while it is being prepared
+        self.import_summary = {"new": [], "already": []}  # filled while BookImporter runs
+        self.importing = False  # True while BookImporter copies books into the library
         self.voice_samples = VoiceSampleLibrary()
         self.playing_sound = None  # keep a reference, otherwise the sound is destroyed while playing
 
@@ -342,17 +376,49 @@ class MainWindow(wx.Frame):
         if self.synthesis_in_progress:
             wx.MessageBox("An audiobook is still being made. Please wait for it to finish.",
                           "Audiobook in progress", parent=self)
-        return not self.synthesis_in_progress
+        elif self.importing:
+            self.status.show("Still importing books, please wait a moment.")
+        return not self.synthesis_in_progress and not self.importing
 
     def on_import(self, event):
-        """Copy an EPUB (e.g. from Downloads) into the library and open the copy."""
+        """
+        Copy EPUBs (e.g. from Downloads) into the library. One file is opened at once; several files
+        (hold Ctrl or Shift in the file window) are all imported and then shown in the Library window.
+        """
         if not self.may_open_another_book():
             return
-        with wx.FileDialog(self, "Import an EPUB into the library", defaultDir=self.settings.last_book_folder,
-                           wildcard="EPUB books (*.epub)|*.epub", style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) as dialog:
-            if dialog.ShowModal() == wx.ID_OK:
-                self.settings.last_book_folder = str(Path(dialog.GetPath()).parent)
-                self.open_epub(dialog.GetPath(), import_into_library=True)
+        with wx.FileDialog(self, "Import EPUBs into the library (choose one or more)",
+                           defaultDir=self.settings.last_book_folder, wildcard="EPUB books (*.epub)|*.epub",
+                           style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_MULTIPLE) as dialog:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            file_paths = dialog.GetPaths()
+        self.settings.last_book_folder = str(Path(file_paths[0]).parent)
+        if len(file_paths) == 1:
+            self.open_epub(file_paths[0], import_into_library=True)
+            return
+        self.import_summary = {"new": [], "already": []}
+        self.importing = True
+        self.tools.file_section.set_book_buttons_enabled(False)
+        BookImporter(file_paths, self).start()
+
+    def record_imported_book(self, epub_path, metadata, imported_from):
+        """BookImporter copied a book into the library: write it into library.json (window thread only)."""
+        is_new = self.library.record_imported(epub_path, metadata, imported_from)
+        self.import_summary["new" if is_new else "already"].append(metadata.title or Path(epub_path).stem)
+
+    def show_import_finished(self, failed):
+        self.importing = False
+        self.tools.file_section.set_book_buttons_enabled(True)
+        new, already = self.import_summary["new"], self.import_summary["already"]
+        self.status.show(f"Imported {len(new)} books" + (f", {len(already)} were already in the library" if already else "")
+                         + (f", {len(failed)} could not be read" if failed else "") + ".")
+        if failed:
+            details = "\n".join(f"• {name}\n    {reason}" for name, reason in failed)
+            wx.MessageBox(f"These files could not be read, so they were not imported. They may be damaged or "
+                          f"not completely downloaded:\n\n{details}", "Some books were not imported",
+                          wx.OK | wx.ICON_WARNING, parent=self)
+        self.on_show_library(None)
 
     def on_show_library(self, event):
         with LibraryDialog(self, self.library) as dialog:

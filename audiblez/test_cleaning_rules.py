@@ -329,6 +329,9 @@ def test_library_imports_a_copy_tracks_the_book_and_reads_its_status_from_the_fo
         other_edition.write_bytes(b"another file")
         assert library.copy_into_library(other_edition, metadata).parent.name == "Yuval Noah Harari - Nexus (2)"
 
+        assert library.record_imported(copy, metadata, imported_from=original), "a new book"
+        assert not library.record_imported(copy, metadata), "importing it again is not a second book"
+        assert library.status_of(library.book_for_file(copy)) == BookStatus.IMPORTED
         library.record_opened(copy, metadata, imported_from=original)
         book = library.book_for_file(copy)
         assert (book.display_name, book.imported_from) == ("Yuval Noah Harari - Nexus", str(original))

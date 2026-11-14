@@ -22,7 +22,7 @@ WHAT IS TRACKED (library.json)
 
 WHO CALLS WHAT
     copy_into_library()  only copies files, so the background thread that opens a book may call it
-    record_opened(), record_audiobook_made()   change library.json: call them from the window's thread only
+    record_imported(), record_opened(), record_audiobook_made()   change library.json: window's thread only
 """
 import json
 import shutil
@@ -166,22 +166,41 @@ class Library:
 
     # ---- recording what happened (window thread only) ------------------------------------------
 
+    def record_imported(self, epub_path, metadata, imported_from=""):
+        """
+        A book was copied into the library (by Import, without opening it). Returns True for a new
+        book and False when it was already in the library (its first import date is kept).
+        """
+        book, is_new = self.entry_for(epub_path, metadata, imported_from)
+        if book is not None:
+            self.save()
+        return is_new
+
     def record_opened(self, epub_path, metadata, imported_from=""):
         """A book from the library was opened (imported_from is set when it was just imported)."""
+        book, _ = self.entry_for(epub_path, metadata, imported_from)
+        if book is not None:
+            book.last_opened_at = now_as_text()
+            self.save()
+
+    def entry_for(self, epub_path, metadata, imported_from=""):
+        """
+        The LibraryBook of an EPUB in the library, made if it is not there yet, with the title and
+        author brought up to date. Returns (book, is_new); (None, False) for a file outside the library.
+        """
         epub_path = Path(epub_path)
         if not self.is_in_library(epub_path):
-            return
-        now = now_as_text()
+            return None, False
         book = self.books.get(epub_path.parent.name)
-        if book is None:
-            book = LibraryBook(folder_name=epub_path.parent.name, epub_file=epub_path.name, imported_at=now)
+        is_new = book is None
+        if is_new:
+            book = LibraryBook(folder_name=epub_path.parent.name, epub_file=epub_path.name, imported_at=now_as_text())
             self.books[book.folder_name] = book
         if imported_from and not book.imported_from:
             book.imported_from = str(imported_from)
         book.title = metadata.title or book.title
         book.author = metadata.authors[0] if metadata.authors else book.author
-        book.last_opened_at = now
-        self.save()
+        return book, is_new
 
     def record_audiobook_made(self, epub_path, audiobook_file, voice):
         book = self.book_for_file(epub_path)

@@ -75,8 +75,10 @@ export UV_PROJECT_ENVIRONMENT=~/.venvs/audiblez
 
 **Tool column (left)** — in the order you use it; drag its edge to make it wider.
 
-1. **Book** — **Import EPUB** copies a book (from Downloads, say) into the library and opens it; the original file
-   is not changed. **Library** lists every imported book (also Ctrl+L). Below them: the library folder.
+1. **Book** — **Import EPUB** copies books (from Downloads, say) into the library; the original files are not
+   changed. Choose one book and it opens at once; choose several (Ctrl or Shift + click) and they are all imported
+   and shown in the Library window. **Library** lists every imported book (also Ctrl+L). Below them: the library
+   folder.
 2. **Voice** — language, voice and CPU/GPU. **Listen** plays a sample at once; **All voices…** lists every
    voice with its language and gender, and whether it is on your computer.
 3. **Speed** — slider or exact number (0.5–2.0); double-click the slider to go back to 1.0.

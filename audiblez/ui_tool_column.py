@@ -102,7 +102,8 @@ class FileSection(ToolSection):
         super().__init__(parent, "1. Book")
         self.main_window = main_window
         self.import_button = wx.Button(self.box, label="📥 Import EPUB...")
-        self.import_button.SetToolTip("Copy an EPUB into the library and open it. The original file is not changed.")
+        self.import_button.SetToolTip("Copy EPUBs into the library; the original files are not changed. One book is "
+                                      "opened at once; choose several (Ctrl or Shift + click) to import them all.")
         self.import_button.Bind(wx.EVT_BUTTON, main_window.on_import)
         self.library_button = wx.Button(self.box, label="📚 Library...")
         self.library_button.SetToolTip("Every imported book: opened, partly made or made into an audiobook")
