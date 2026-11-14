@@ -50,6 +50,7 @@ import wx.adv
 from wx.lib.newevent import NewEvent
 
 from audiblez.library import DEFAULT_LIBRARY_FOLDER, Library
+from audiblez.book_search import find_in_book, next_match
 from audiblez.picture_text_detector import find_lines_of_kind
 from audiblez.settings import UserSettings
 from audiblez.ui_book_panels import BookCard, ChapterListPanel, TextPreviewPanel
@@ -324,9 +325,11 @@ class MainWindow(wx.Frame):
         exit_item = file_menu.Append(wx.ID_EXIT, "E&xit\tCtrl+Q")
         view_menu = wx.Menu()
         font_item = view_menu.Append(wx.ID_ANY, "Text &font...\tCtrl+Shift+F")
+        search_item = view_menu.Append(wx.ID_FIND, "&Search the book...\tCtrl+F")
         help_menu = wx.Menu()
         about_item = help_menu.Append(wx.ID_ABOUT, "&About")
         self.Bind(wx.EVT_MENU, self.on_choose_text_font, font_item)
+        self.Bind(wx.EVT_MENU, lambda event: self.text_preview.focus_search(), search_item)
         self.Bind(wx.EVT_MENU, self.on_import, import_item)
         self.Bind(wx.EVT_MENU, self.on_show_library, library_item)
         self.Bind(wx.EVT_MENU, lambda event: self.Close(), exit_item)
@@ -533,6 +536,26 @@ class MainWindow(wx.Frame):
         self.tools.file_section.set_book_buttons_enabled(True)
         self.tools.set_book_actions_enabled(bool(self.book_sections))
         self.status.show(f"❌ Could not open {Path(file_path).name}: {reason}")
+
+    # ---- search (the box above the text) -------------------------------------------------------
+
+    def search_book(self, query, shown_section, position, forward):
+        """Jump to the next (or previous) place in the whole book where `query` occurs."""
+        matches = find_in_book(self.book_sections, query)
+        index = next_match(matches, self.book_sections, (shown_section, position), forward)
+        if index is None:
+            self.text_preview.show_match_count("Not found")
+            self.status.show(f"⚠ \"{query.strip()}\" does not occur in this book.")
+            return
+        match = matches[index]
+        self.chapter_list.select_section(match.section)
+        if self.text_preview.section is not match.section:  # the row was already selected, so no event came
+            self.on_section_selected(match.section)
+        self.text_preview.show_match_count(f"{index + 1} of {len(matches)}")
+        wx.CallAfter(self.text_preview.reveal_range, match.start, match.end)  # after the text is in place
+        sections_with_match = len({id(m.section) for m in matches})
+        self.status.show(f"\"{query.strip()}\": place {index + 1} of {len(matches)}, in {sections_with_match} "
+                         f"section(s). Now in \"{match.section.display_title}\".")
 
     # ---- called by the book panels -----------------------------------------------------------
 

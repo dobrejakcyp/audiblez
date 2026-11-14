@@ -36,6 +36,25 @@ def safe_file_name(text):
     return name
 
 
+# "Surname, First names" as library catalogues write it: one comma, a few words on each side, no digits
+SURNAME_FIRST = re.compile(r"^(?P<surname>[^\W\d][\w'’\-]*(?: [^\W\d][\w'’\-]*){0,2}), "
+                           r"(?P<first>[^\W\d][\w.'’\-]*(?: [^\W\d][\w.'’\-]*){0,3})$")
+NAME_SUFFIXES = {"jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "phd", "ph.d.", "md", "m.d."}
+
+
+def readable_author_name(name):
+    """
+    "Gertner, Jon" -> "Jon Gertner"; "Smith, J. R." -> "J. R. Smith". Names that are already in
+    reading order, or that are not clearly "Surname, First names" (two commas, "Ford, Jr."), stay as they are.
+    A name without a comma ("Isaacson Walter") cannot be told apart from a real name, so it is not changed.
+    """
+    name = " ".join(name.split())
+    match = SURNAME_FIRST.match(name)
+    if not match or match["first"].lower() in NAME_SUFFIXES:
+        return name
+    return f"{match['first']} {match['surname']}"
+
+
 def audiobook_file_name(title, authors, fallback):
     """
     The name for the audiobook file, without extension: "Author - Title" from the book's details.
@@ -78,7 +97,7 @@ class BookMetadata:
         cover = find_cover(book)
         return cls(
             title=first_value("title"),
-            authors=all_values("creator"),
+            authors=[readable_author_name(author) for author in all_values("creator")],
             isbn=cls._find_isbn(all_values("identifier")),
             publisher=first_value("publisher"),
             published=first_value("date")[:10],

@@ -33,7 +33,7 @@ from kokoro import KPipeline
 from ebooklib import epub
 from pick import pick
 
-from audiblez.book_metadata import audiobook_file_name, find_cover
+from audiblez.book_metadata import audiobook_file_name, find_cover, readable_author_name
 from audiblez.chapter_selection import find_good_chapters
 from audiblez.epub_text_extractor import CleaningReport, EpubTextExtractor
 
@@ -124,7 +124,7 @@ def convert(file_path, voice, pick_manually, speed, output_folder, max_chapters,
     meta_title = book.get_metadata('DC', 'title')
     title = meta_title[0][0] if meta_title else ''
     meta_creator = book.get_metadata('DC', 'creator')
-    creator = meta_creator[0][0] if meta_creator else ''
+    creator = readable_author_name(meta_creator[0][0]) if meta_creator else ''  # "Gertner, Jon" -> "Jon Gertner"
 
     # The audiobook is named "Author - Title.m4b" from the book's details, not after the EPUB file
     # (see book_metadata.audiobook_file_name). `filename` keeps the form "<name>.epub" because the

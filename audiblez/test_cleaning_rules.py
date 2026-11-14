@@ -46,7 +46,7 @@ def test_caption_and_figure_reference_are_removed_but_small_caps_stay():
 
 def test_page_break_marker_is_removed():
     text, _ = read_aloud('<p>Page <span epub:type="pagebreak">45</span> continues.</p>')
-    assert text == "Page  continues.\n", text  # two spaces remain: harmless for the voice
+    assert text == "Page continues.\n", text  # the gap left by the page number becomes one space
 
 
 def test_nested_list_items_are_read_once():
@@ -433,6 +433,46 @@ def test_sections_are_recognised_by_numbered_titles_front_matter_and_copyright_t
     assert [(s.is_included, s.reason) for s in sections] == [
         (False, "front matter"), (False, "front matter"), (False, "copyright"), (True, "chapter"),
         (False, "selected bibliography"), (False, "copyright")], [(s.is_included, s.reason) for s in sections]
+
+
+def test_quoted_extracts_are_announced_but_a_whole_indented_page_is_not():
+    story = "<p>" + "Plain story text around the quotation. " * 6 + "</p>"
+    text, _ = read_aloud(story + "<blockquote><p>I was given a lecture.</p><p>It went on.</p></blockquote>" + story)
+    lines = text.splitlines()
+    assert lines[1:5] == ["Quote.", "I was given a lecture.", "It went on.", "End quote."], lines
+    indented, _ = read_aloud("<blockquote><p>" + "A whole chapter indented with a blockquote. " * 10 + "</p></blockquote>")
+    assert "Quote." not in indented, "a blockquote that is most of the page is not a quotation"
+
+
+def test_author_names_are_put_in_reading_order():
+    from audiblez.book_metadata import readable_author_name
+    assert readable_author_name("Gertner, Jon") == "Jon Gertner"
+    assert readable_author_name("Le Guin, Ursula K.") == "Ursula K. Le Guin"
+    for unchanged in ("Walter Isaacson", "Isaacson Walter", "King, Martin Luther, Jr.", "Ford, Jr."):
+        assert readable_author_name(unchanged) == unchanged, unchanged
+
+
+def test_search_finds_every_place_in_the_book_and_goes_round():
+    from audiblez.book_search import find_in_book, next_match
+    from audiblez.chapter_selection import BookSection
+    sections = [BookSection(FakeTitledChapter(title, text), title, True, "chapter", False)
+                for title, text in [("One", "The Transistor was new.\n"), ("Two", "No match here.\n"),
+                                    ("Three", "A transistor, then another transistor.\n")]]
+    matches = find_in_book(sections, "transistor")
+    assert [(m.section.display_title, m.start) for m in matches] == [("One", 4), ("Three", 2), ("Three", 27)]
+    assert next_match(matches, sections, (sections[1], 0)) == 1, "the next place after section Two"
+    assert next_match(matches, sections, (sections[2], 27)) == 0, "after the last place it starts again"
+    assert next_match(matches, sections, (sections[0], 4), forward=False) == 2, "before the first: the last"
+    assert find_in_book(sections, "   ") == [] and next_match([], sections, (sections[0], 0)) is None
+
+
+def test_every_line_stays_one_line_so_the_colours_match_the_text():
+    kinds = []
+    from audiblez.epub_text_extractor import EpubTextExtractor
+    text = EpubTextExtractor.with_default_rules().extract_text_from_html(
+        "<p>A paragraph written\non two source lines.</p><p>line one<br/>line two</p>", line_kinds=kinds)
+    assert text == "A paragraph written on two source lines.\nline one line two.\n", text
+    assert len(kinds) == len(text.split("\n")[:-1]) == 2
 
 
 if __name__ == "__main__":

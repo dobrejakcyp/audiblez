@@ -14,7 +14,9 @@ import wx
 import wx.adv
 from PIL import Image
 
+from audiblez.epub_text_extractor import QUOTE_TAG, SPOKEN_MARKER
 from audiblez.fonts import DEFAULT_FONT_SIZE, LARGEST_FONT_SIZE, SMALLEST_FONT_SIZE
+from audiblez.spoken_headings import SPOKEN_HEADING
 from audiblez.ui_common import SPACING, bold, describe_audio_length, make_text_font, set_wrapped_text
 
 
@@ -248,12 +250,20 @@ class ChapterListPanel(wx.Panel):
 
 class TextPreviewPanel(wx.Panel):
     """
-    The text of the selected section. Lines that came from picture text are shown in yellow.
+    The text of the selected section, coloured by what each line is (see line_style):
+    headings light blue, quotations lavender, picture text yellow, normal text plain.
+    Above it: a search box that searches the whole book (MainWindow.search_book).
     Right-click opens a menu: read the highlighted text aloud, stop reading, and the usual
     cut / copy / paste / select all (the text can be edited before the audiobook is made).
+    Colours follow the lines as they were extracted; after you edit a section by hand they are
+    left off for it, because the lines may no longer match.
     """
 
-    HIGHLIGHT = wx.TextAttr(wx.BLACK, wx.Colour(255, 228, 130))  # black text on yellow
+    HIGHLIGHT = wx.TextAttr(wx.BLACK, wx.Colour(255, 228, 130))  # picture text: black on yellow (it asks for action)
+    HEADING_COLOUR = wx.Colour(220, 232, 246)  # muted blue
+    QUOTE_COLOUR = wx.Colour(236, 230, 246)  # muted lavender
+    HEADING_TAGS = {SPOKEN_HEADING, "h1", "h2", "h3", "h4", "h5", "h6"}
+    QUOTE_TAGS = {QUOTE_TAG, SPOKEN_MARKER}
     TIP = "Tip: highlight some text and right-click to hear it."
 
     def __init__(self, parent, main_window):
@@ -280,12 +290,39 @@ class TextPreviewPanel(wx.Panel):
         self.font_button.Bind(wx.EVT_BUTTON, main_window.on_choose_text_font)
         self.text_area.Bind(wx.EVT_TEXT, self.on_text_edited)
 
+        # Search the whole book: Enter or ▶ = next place, Shift+Enter or ◀ = previous place (Ctrl+F jumps here)
+        self.search_box = wx.SearchCtrl(self, size=(190, -1), style=wx.TE_PROCESS_ENTER)
+        self.search_box.SetDescriptiveText("Search the book (Ctrl+F)")
+        self.search_box.ShowCancelButton(True)
+        self.search_box.Bind(wx.EVT_TEXT_ENTER, lambda event: self.search(forward=not wx.GetKeyState(wx.WXK_SHIFT)))
+        self.search_box.Bind(wx.EVT_SEARCH, lambda event: self.search(forward=True))
+        self.search_box.Bind(wx.EVT_SEARCH_CANCEL, lambda event: self.clear_search())
+        self.previous_match_button = wx.Button(self, label="◀", style=wx.BU_EXACTFIT)
+        self.next_match_button = wx.Button(self, label="▶", style=wx.BU_EXACTFIT)
+        self.previous_match_button.SetToolTip("Previous place (Shift+Enter)")
+        self.next_match_button.SetToolTip("Next place (Enter)")
+        self.previous_match_button.Bind(wx.EVT_BUTTON, lambda event: self.search(forward=False))
+        self.next_match_button.Bind(wx.EVT_BUTTON, lambda event: self.search(forward=True))
+        self.match_count = wx.StaticText(self, label="", size=(70, -1))
+
+        # A small legend of the line colours, next to the file name
+        self.legend = [self.legend_label(" Heading ", self.HEADING_COLOUR), self.legend_label(" Quote ", self.QUOTE_COLOUR),
+                       self.legend_label(" Picture text ", self.HIGHLIGHT.GetBackgroundColour())]
+
         self.header_sizer = wx.BoxSizer(wx.VERTICAL)  # see ChapterListPanel.header_sizer
         title_row = wx.BoxSizer(wx.HORIZONTAL)
         title_row.Add(self.heading, 1, wx.ALIGN_CENTER_VERTICAL)
+        title_row.Add(self.search_box, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, SPACING)
+        title_row.Add(self.previous_match_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, SPACING // 2)
+        title_row.Add(self.next_match_button, 0, wx.ALIGN_CENTER_VERTICAL)
+        title_row.Add(self.match_count, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, SPACING)
         title_row.Add(self.font_button, 0, wx.LEFT, SPACING)
+        file_row = wx.BoxSizer(wx.HORIZONTAL)
+        file_row.Add(self.file_label, 1, wx.ALIGN_CENTER_VERTICAL)
+        for label in self.legend:
+            file_row.Add(label, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, SPACING // 2)
         self.header_sizer.Add(title_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, SPACING)
-        self.header_sizer.Add(self.file_label, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, SPACING)
+        self.header_sizer.Add(file_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, SPACING // 2)
         self.header_sizer.Add(self.note, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, SPACING)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.header_sizer, 0, wx.EXPAND)
@@ -298,6 +335,13 @@ class TextPreviewPanel(wx.Panel):
     def set_header_height(self, height):
         self.header_sizer.SetMinSize((-1, height))
         self.Layout()
+
+    def legend_label(self, text, colour):
+        label = wx.StaticText(self, label=text)
+        label.SetBackgroundColour(colour)
+        label.SetForegroundColour(wx.BLACK)
+        label.SetToolTip("Lines of this kind have this colour in the text below")
+        return label
 
     def set_text_font(self, face, size):
         """Show the book text in another font. The text is put in again, so the yellow lines are kept."""
@@ -329,25 +373,62 @@ class TextPreviewPanel(wx.Panel):
         self.heading.SetLabel(section.display_title)
         self.file_label.SetLabel(f"File: {section.file_name}   ({section.reason})")
         self.text_area.ChangeValue(section.chapter.extracted_text)  # ChangeValue does not fire EVT_TEXT
-        self.show_note(self.highlight_lines(section.chapter, set(highlighted_classes)))
+        self.show_note(self.colour_lines(section.chapter, set(highlighted_classes)))
 
-    def highlight_lines(self, chapter, css_classes):
-        """Colour every line whose element had one of `css_classes`. Returns how many lines were coloured."""
+    def line_style(self, kind, picture_classes):
+        """The colours for one line from its kind (tag, css classes); None = plain text."""
+        tag, classes = kind
+        if picture_classes & set(classes):
+            return self.HIGHLIGHT
+        text_colour = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT)
+        if tag in self.HEADING_TAGS:
+            return wx.TextAttr(text_colour, self.HEADING_COLOUR)
+        if tag in self.QUOTE_TAGS:
+            return wx.TextAttr(text_colour, self.QUOTE_COLOUR)
+        return None
+
+    def colour_lines(self, chapter, picture_classes):
+        """Colour every line by its kind. Returns how many lines are picture text (yellow)."""
         line_kinds = getattr(chapter, "line_kinds", None)
         lines = chapter.extracted_text.split("\n")[:-1]  # the text ends with a newline
-        if not css_classes or not line_kinds or len(line_kinds) != len(lines):
-            return 0  # nothing to colour, or the text was edited by hand so the lines no longer match
-        position, coloured = 0, 0
-        for line, (_tag, classes) in zip(lines, line_kinds):
-            if css_classes & set(classes):
-                self.text_area.SetStyle(position, position + len(line), self.HIGHLIGHT)
-                coloured += 1
+        if not line_kinds or len(line_kinds) != len(lines):
+            return 0  # the text was edited by hand, so the lines no longer match their kinds
+        position, picture_lines = 0, 0
+        for line, kind in zip(lines, line_kinds):
+            style = self.line_style(kind, picture_classes)
+            if style is not None:
+                self.text_area.SetStyle(position, position + len(line), style)
+                picture_lines += style is self.HIGHLIGHT
             position += len(line) + 1  # +1 for the newline
-        return coloured
+        return picture_lines
 
     def selected_text(self):
         """The text the user highlighted with the mouse, or "" if nothing is highlighted."""
         return self.text_area.GetStringSelection()
+
+    # ---- search (the whole book; MainWindow decides where the next place is) -------------------
+
+    def focus_search(self):
+        self.search_box.SetFocus()
+        self.search_box.SelectAll()
+
+    def search(self, forward):
+        query = self.search_box.GetValue()
+        if query.strip():
+            position = self.text_area.GetSelection()[0]
+            self.main_window.search_book(query, self.section, position, forward)
+
+    def clear_search(self):
+        self.search_box.Clear()
+        self.match_count.SetLabel("")
+
+    def show_match_count(self, text):
+        self.match_count.SetLabel(text)
+
+    def reveal_range(self, start, end):
+        """Scroll to characters start..end of the shown text and highlight them (used by search)."""
+        self.text_area.SetSelection(start, end)
+        self.text_area.ShowPosition(start)
 
     def reveal_line(self, line_number):
         """Scroll to line `line_number` of the shown text and highlight it (used to jump to picture text)."""

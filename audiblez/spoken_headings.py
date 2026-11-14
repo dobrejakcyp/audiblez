@@ -42,6 +42,7 @@ SEPARATOR = r"(?P<separator>\s*[.:)\-–—]\s*|\s+|$)"
 NUMBERED_TITLE = re.compile(rf"^(?P<word>chapter\s+)?(?P<number>{NUMBER}){SEPARATOR}(?P<rest>.*)$", re.IGNORECASE)
 # A part page: "Part 1", "PART ONE", "Part I: Cold War Chips", "Book Two"
 PART_TITLE = re.compile(rf"^(?P<word>part|book)\s+(?P<number>{NUMBER}){SEPARATOR}(?P<rest>.*)$", re.IGNORECASE)
+SPOKEN_HEADING = "spoken heading"  # the kind of the added heading lines (the window colours them)
 LONGEST_HEADING_LINE = 90  # characters; a longer first line is real text, never a heading
 MOST_HEADING_LINES = 4
 
@@ -163,7 +164,7 @@ def add_spoken_headings(chapters, short_page_characters):
 
 def replace_printed_heading(chapter, heading, new_lines):
     """Drop the printed heading lines at the start of the chapter and put `new_lines` there instead."""
-    lines = chapter.extracted_text.splitlines()
+    lines = chapter.extracted_text.split("\n")[:-1]  # the text ends with a newline
     kinds = list(getattr(chapter, "line_kinds", None) or [])
     heading_words = f" {comparable_words(heading)} "
     printed_heading_lines = 0
@@ -173,5 +174,7 @@ def replace_printed_heading(chapter, heading, new_lines):
             break
         printed_heading_lines += 1
     chapter.extracted_text = "".join(line + "\n" for line in new_lines + lines[printed_heading_lines:])
-    if len(kinds) == len(lines):  # keep one kind per line (used for highlighting picture text)
-        chapter.line_kinds = [("spoken heading", ())] * len(new_lines) + kinds[printed_heading_lines:]
+    if len(kinds) == len(lines):  # keep one kind per line (used for the colours in the window)
+        chapter.line_kinds = [(SPOKEN_HEADING, ())] * len(new_lines) + kinds[printed_heading_lines:]
+    else:  # they did not match before, so any colours would land on the wrong lines: show none
+        chapter.line_kinds = []

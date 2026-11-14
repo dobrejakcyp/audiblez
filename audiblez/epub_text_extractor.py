@@ -20,6 +20,11 @@ from audiblez.chapter_selection import SectionClassifier
 from audiblez.cleaning_rules import default_removal_rules, default_text_edits
 from audiblez.spoken_headings import add_spoken_headings
 
+# The first part of a line's kind (tag, css classes) for lines this module adds or marks itself.
+# The window colours lines by these (ui_book_panels.TextPreviewPanel).
+QUOTE_TAG = "blockquote"  # any line from inside a <blockquote>, also a <p> nested in it
+SPOKEN_MARKER = "spoken marker"  # the added "Quote." and "End quote." lines
+
 
 # =============================================================================================
 # The report
@@ -152,6 +157,12 @@ class EpubTextExtractor:
     TEXT_BLOCK_TAGS = ("title", "p", "h1", "h2", "h3", "h4", "li", "blockquote", "div", "h5", "h6", "dd", "dt")
     SENTENCE_ENDINGS = (".", "!", "?", "…", ":", ";")
 
+    # A quoted extract (a run of <blockquote> lines) is announced with "Quote." ... "End quote.",
+    # but only when it really looks like a quotation: some books put whole chapters in a <blockquote>
+    # just to indent them, and "Quote" around a whole chapter would be wrong.
+    LONGEST_ANNOUNCED_QUOTE = 3000  # characters
+    LARGEST_QUOTE_SHARE = 0.5  # of the page's text
+
     def __init__(self, removal_rules, text_edits, report=None):
         self.removal_rules = removal_rules
         self.text_edits = text_edits
@@ -205,15 +216,39 @@ class EpubTextExtractor:
         report = report or self.report
         page = BeautifulSoup(html, features="lxml")
         self._remove_unwanted_elements(page, report)
-        readable_text = ""
+        lines = []  # (line, kind); kind = (tag, css classes) of the element the line came from
         for block in page.find_all(self.TEXT_BLOCK_TAGS):
             line = self._make_speakable_line(self._text_of_block_itself(block), report)
             if line:
                 report.record_kept_line(block, line)
-                readable_text += line + "\n"
-                if line_kinds is not None:
-                    line_kinds.append((block.name, tuple(block.get("class") or ())))
-        return readable_text
+                tag = QUOTE_TAG if block.name == "blockquote" or block.find_parent("blockquote") else block.name
+                lines.append((line, (tag, tuple(block.get("class") or ()))))
+        lines = self._announce_quotes(lines)
+        if line_kinds is not None:
+            line_kinds.extend(kind for _line, kind in lines)
+        return "".join(line + "\n" for line, _kind in lines)
+
+    def _announce_quotes(self, lines):
+        """Put "Quote." before and "End quote." after every run of quote lines that looks like a real quotation."""
+        page_characters = sum(len(line) for line, _kind in lines)
+        announced, run = [], []
+
+        def close_run():
+            characters = sum(len(line) for line, _kind in run)
+            if run and characters <= self.LONGEST_ANNOUNCED_QUOTE and characters < page_characters * self.LARGEST_QUOTE_SHARE:
+                announced.extend([("Quote.", (SPOKEN_MARKER, ())), *run, ("End quote.", (SPOKEN_MARKER, ()))])
+            else:
+                announced.extend(run)
+            run.clear()
+
+        for line, kind in lines:
+            if kind[0] == QUOTE_TAG:
+                run.append((line, kind))
+            else:
+                close_run()
+                announced.append((line, kind))
+        close_run()
+        return announced
 
     # ---- step 1: remove elements -------------------------------------------------------------
 
@@ -249,6 +284,8 @@ class EpubTextExtractor:
                 continue
             if isinstance(child, NavigableString):
                 pieces.append(str(child))
+            elif child.name == "br":
+                pieces.append(" ")  # a line break inside a paragraph separates words
             elif child.name in self.TEXT_BLOCK_TAGS:
                 continue  # a nested block: it will be read on its own turn
             else:
@@ -261,7 +298,10 @@ class EpubTextExtractor:
             edited_text = text_edit.apply(text)
             report.record_text_edit(text_edit, len(text) - len(edited_text))
             text = edited_text
-        text = text.strip()
+        # One paragraph = one line: line breaks and runs of spaces from the HTML source become one space
+        # (a browser shows them the same way). Every line must stay ONE line, or the lines and their
+        # line_kinds would no longer match.
+        text = " ".join(text.split())
         if not any(character.isalnum() for character in text):  # e.g. a lone "* * *"
             return ""
         if not text.rstrip("’)]").endswith(self.SENTENCE_ENDINGS):  # "Stop!’" already ends a sentence

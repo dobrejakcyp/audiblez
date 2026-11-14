@@ -64,7 +64,7 @@ class SectionClassifier:
     NOT_STORY_TITLE = re.compile(
         r"^(contents|table of contents|copyright|index|notes|endnotes|footnotes|acknowledge?ments"
         r"|praise|about the authors?|about the publisher|also by|other books by|(?:selected )?bibliography|references"
-        r"|further reading|permissions|illustration credits|picture credits|cover|title page|dedication|colophon"
+        r"|sources|further reading|permissions|illustration credits|picture credits|cover|title page|dedication|colophon"
         r"|the project gutenberg|the full project gutenberg)\b",
         re.IGNORECASE)
 
