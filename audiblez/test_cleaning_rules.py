@@ -306,6 +306,55 @@ def test_combined_report_adds_up_chapter_reports():
     assert combined.kept_characters == len("kept text.")
 
 
+def test_library_imports_a_copy_tracks_the_book_and_reads_its_status_from_the_folder():
+    import tempfile
+    from pathlib import Path
+    from audiblez.book_metadata import BookMetadata
+    from audiblez.library import BookStatus, Library
+    with tempfile.TemporaryDirectory() as temporary:
+        downloads, root = Path(temporary) / "Downloads", Path(temporary) / "Library"
+        downloads.mkdir()
+        original = downloads / "nexus.epub"
+        original.write_bytes(b"pretend epub")
+        metadata = BookMetadata(title="Nexus", authors=["Yuval Noah Harari"])
+        library = Library(root)
+
+        copy = library.copy_into_library(original, metadata)
+        assert copy == root / "Yuval Noah Harari - Nexus" / "nexus.epub" and copy.read_bytes() == b"pretend epub"
+        assert original.exists(), "importing copies, the original stays"
+        assert library.copy_into_library(original, metadata) == copy, "importing again reuses the copy"
+        assert library.copy_into_library(copy, metadata) == copy, "a book already in the library stays where it is"
+
+        other_edition = downloads / "nexus-2nd.epub"
+        other_edition.write_bytes(b"another file")
+        assert library.copy_into_library(other_edition, metadata).parent.name == "Yuval Noah Harari - Nexus (2)"
+
+        library.record_opened(copy, metadata, imported_from=original)
+        book = library.book_for_file(copy)
+        assert (book.display_name, book.imported_from) == ("Yuval Noah Harari - Nexus", str(original))
+        assert library.status_of(book) == BookStatus.OPENED
+
+        work = Library.work_folder_for(copy)
+        work.mkdir()
+        (work / "chapter_1.wav").write_bytes(b"")
+        assert library.status_of(book) == BookStatus.PARTLY_MADE, "stopped half way"
+
+        (copy.parent / "Yuval Noah Harari - Nexus.m4b").write_bytes(b"audio")
+        library.record_audiobook_made(copy, "Yuval Noah Harari - Nexus.m4b", "bm_george")
+        assert library.status_of(book) == BookStatus.AUDIOBOOK_MADE
+
+        reloaded = Library(root)  # everything above was saved in library.json
+        assert reloaded.book_for_file(copy).voice == "bm_george"
+        assert reloaded.status_of(reloaded.book_for_file(copy)) == BookStatus.AUDIOBOOK_MADE
+        (copy.parent / "Yuval Noah Harari - Nexus.m4b").unlink()
+        assert reloaded.status_of(reloaded.book_for_file(copy)) == BookStatus.PARTLY_MADE, "status follows the files"
+        copy.unlink()
+        assert reloaded.status_of(reloaded.book_for_file(copy)) == BookStatus.FILES_MISSING
+
+        (root / "library.json").write_text("{ broken", encoding="utf-8")
+        assert Library(root).books == {}, "a broken library.json is an empty library, not a crash"
+
+
 if __name__ == "__main__":
     all_tests = {name: function for name, function in globals().items() if name.startswith("test_")}
     for name, function in all_tests.items():

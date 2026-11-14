@@ -8,7 +8,7 @@ ui.py - the main window of audiblez (built with wxPython). Start it with:
 WINDOW LAYOUT
     +--------------+--------------------------------------------------+
     | ToolColumn   | BookCard  (cover, details, links)                |
-    | 1 Book file  +------------------------+-------------------------+
+    | 1 Book       +------------------------+-------------------------+
     | 2 Voice      | ChapterListPanel       | TextPreviewPanel        |
     | 3 Speed      | (ticked = read aloud)  | (editable text;         |
     | 4 Picture    |                        |  right-click to hear it)|
@@ -21,6 +21,11 @@ WINDOW LAYOUT
     +-----------------------------------------------------------------+
 
     The panels live in ui_tool_column.py and ui_book_panels.py. This file connects them.
+
+THE LIBRARY (library.py, ui_library_dialog.py)
+    Import copies an EPUB into its own folder in the library folder; the audiobook is made in that
+    same folder (its chapter .wav files in the folder's "work" subfolder). library.json in the library
+    folder records when each book was imported, opened and made into an audiobook.
 
 HOW THE PARTS TALK TO EACH OTHER
     A panel never reaches into another panel. It calls a method of MainWindow ("the user picked
@@ -42,11 +47,13 @@ import wx
 import wx.adv
 from wx.lib.newevent import NewEvent
 
+from audiblez.library import DEFAULT_LIBRARY_FOLDER, Library
 from audiblez.picture_text_detector import find_lines_of_kind
 from audiblez.settings import UserSettings
 from audiblez.ui_book_panels import BookCard, ChapterListPanel, TextPreviewPanel
 from audiblez.ui_common import SPACING, describe_audio_length
 from audiblez.ui_font_dialog import FontDialog
+from audiblez.ui_library_dialog import LibraryDialog
 from audiblez.ui_tool_column import ToolColumn, open_folder_in_file_manager
 from audiblez.ui_voice_list import VoiceListDialog
 from audiblez.voice_library import VoiceSampleLibrary
@@ -91,14 +98,16 @@ class StatusBanner:
 class BookLoader(threading.Thread):
     """
     Reads and cleans an EPUB in the background and reports each step to the status banner.
-    `removed_classes` are CSS classes to leave out (picture text chosen in tool 6).
+    `removed_classes` are CSS classes to leave out (picture text chosen in tool 4).
+    With `import_into` (a Library), the EPUB is first copied into the library and the copy is opened.
     """
 
-    def __init__(self, file_path, window, removed_classes=()):
+    def __init__(self, file_path, window, removed_classes=(), import_into=None):
         super().__init__(daemon=True)
         self.file_path = file_path
         self.window = window
         self.removed_classes = list(removed_classes)
+        self.import_into = import_into
 
     def report(self, message, percent=None):
         wx.CallAfter(self.window.status.show, message, percent)
@@ -114,6 +123,11 @@ class BookLoader(threading.Thread):
             book = epub.read_epub(self.file_path)
             self.report("Reading the book details and cover ...")
             metadata = BookMetadata.from_epub(book)
+            imported_from = ""
+            if self.import_into is not None and not self.import_into.is_in_library(self.file_path):
+                self.report("Copying the book into the library ...")
+                imported_from = self.file_path
+                self.file_path = str(self.import_into.copy_into_library(self.file_path, metadata))
             extractor = EpubTextExtractor.with_default_rules(extra_class_names=self.removed_classes)
             chapters = extractor.extract_chapters(
                 book, on_progress=lambda done, total: self.report(
@@ -123,7 +137,7 @@ class BookLoader(threading.Thread):
             self.report("Looking for picture captions and credits ...")
             picture_text_groups = PictureTextDetector().find_groups(chapters)
             wx.CallAfter(self.window.show_loaded_book, self.file_path, metadata, sections,
-                         picture_text_groups, self.removed_classes)
+                         picture_text_groups, self.removed_classes, imported_from)
         except Exception as error:
             traceback.print_exc()
             wx.CallAfter(self.window.show_loading_failed, self.file_path, error)
@@ -173,6 +187,7 @@ class MainWindow(wx.Frame):
         super().__init__(parent, title=title, size=(window_width, window_height))
 
         self.settings = UserSettings.load()
+        self.library = Library(self.settings.library_folder or DEFAULT_LIBRARY_FOLDER)
         self.core_thread = None
         self.book_sections = []
         self.picture_text_groups = []
@@ -196,7 +211,7 @@ class MainWindow(wx.Frame):
         self.create_menu()
         self.create_layout()
         self.status = StatusBanner(self)
-        self.status.show("Ready. Open an EPUB file to begin (1. Book file, on the left).")
+        self.status.show("Ready. Import an EPUB, or pick a book from the Library (1. Book, on the left).")
         self.tools.create_section.show_summary("Open a book first.", "-")
         self.restore_settings()
         self.Bind(wx.EVT_CLOSE, self.on_close)
@@ -206,6 +221,7 @@ class MainWindow(wx.Frame):
 
     def restore_settings(self):
         self.tools.apply_settings(self.settings)
+        self.tools.file_section.show_library_folder(self.library.folder)
         self.chapter_list.show_short_files_checkbox.SetValue(self.settings.show_short_files)
         size, position = self.settings.window_size, self.settings.window_position
         if len(size) == 2:
@@ -258,14 +274,16 @@ class MainWindow(wx.Frame):
     def create_menu(self):
         menubar = wx.MenuBar()
         file_menu = wx.Menu()
-        open_item = file_menu.Append(wx.ID_OPEN, "&Open EPUB...\tCtrl+O")
+        import_item = file_menu.Append(wx.ID_OPEN, "&Import EPUB...\tCtrl+O")
+        library_item = file_menu.Append(wx.ID_ANY, "&Library...\tCtrl+L")
         exit_item = file_menu.Append(wx.ID_EXIT, "E&xit\tCtrl+Q")
         view_menu = wx.Menu()
         font_item = view_menu.Append(wx.ID_ANY, "Text &font...\tCtrl+Shift+F")
         help_menu = wx.Menu()
         about_item = help_menu.Append(wx.ID_ABOUT, "&About")
         self.Bind(wx.EVT_MENU, self.on_choose_text_font, font_item)
-        self.Bind(wx.EVT_MENU, self.on_open, open_item)
+        self.Bind(wx.EVT_MENU, self.on_import, import_item)
+        self.Bind(wx.EVT_MENU, self.on_show_library, library_item)
         self.Bind(wx.EVT_MENU, lambda event: self.Close(), exit_item)
         self.Bind(wx.EVT_MENU, self.on_about, about_item)
         menubar.Append(file_menu, "&File")
@@ -320,29 +338,45 @@ class MainWindow(wx.Frame):
 
     # ---- 1. opening a book -------------------------------------------------------------------
 
-    def on_open(self, event):
+    def may_open_another_book(self):
         if self.synthesis_in_progress:
             wx.MessageBox("An audiobook is still being made. Please wait for it to finish.",
                           "Audiobook in progress", parent=self)
+        return not self.synthesis_in_progress
+
+    def on_import(self, event):
+        """Copy an EPUB (e.g. from Downloads) into the library and open the copy."""
+        if not self.may_open_another_book():
             return
-        with wx.FileDialog(self, "Open EPUB file", defaultDir=self.settings.last_book_folder,
+        with wx.FileDialog(self, "Import an EPUB into the library", defaultDir=self.settings.last_book_folder,
                            wildcard="EPUB books (*.epub)|*.epub", style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) as dialog:
             if dialog.ShowModal() == wx.ID_OK:
                 self.settings.last_book_folder = str(Path(dialog.GetPath()).parent)
-                self.open_epub(dialog.GetPath())
+                self.open_epub(dialog.GetPath(), import_into_library=True)
 
-    def open_epub(self, file_path, removed_classes=None):
+    def on_show_library(self, event):
+        with LibraryDialog(self, self.library) as dialog:
+            if dialog.ShowModal() == wx.ID_OK and self.may_open_another_book():
+                self.open_epub(dialog.chosen_epub_path)
+
+    def on_library_folder_changed(self, folder):
+        """Tool 1 → Change...: use another library folder (its library.json is read, or started empty)."""
+        self.library = Library(folder)
+        self.tools.file_section.show_library_folder(self.library.folder)
+        self.status.show(f"Library folder: {self.library.folder} ({len(self.library.books)} books)")
+
+    def open_epub(self, file_path, removed_classes=None, import_into_library=False):
         """
         Start loading in the background; show_loaded_book() is called when it is done.
         Without `removed_classes`, the picture text removed last time for this book is used.
         """
         if removed_classes is None:
             removed_classes = self.settings.picture_text_removed.get(Path(file_path).name, [])
-        self.tools.file_section.open_button.Disable()
+        self.tools.file_section.set_book_buttons_enabled(False)
         self.tools.set_book_actions_enabled(False)
-        BookLoader(file_path, self, removed_classes).start()
+        BookLoader(file_path, self, removed_classes, import_into=self.library if import_into_library else None).start()
 
-    def show_loaded_book(self, file_path, metadata, sections, picture_text_groups, removed_classes):
+    def show_loaded_book(self, file_path, metadata, sections, picture_text_groups, removed_classes, imported_from=""):
         reloading_same_book = file_path == self.epub_path
         if reloading_same_book:  # keep the user's own ticks and the selected section
             self.copy_choices_from_previous_load(sections)
@@ -362,12 +396,16 @@ class MainWindow(wx.Frame):
         self.chapter_list.show_sections(sections)
         self.chapter_list.select_section(self.section_to_show_first(sections, reloading_same_book))
         self.on_sections_changed()
-        self.tools.file_section.open_button.Enable()
+        self.tools.file_section.set_book_buttons_enabled(True)
         self.tools.set_book_actions_enabled(True)
         self.root.Layout()
+        self.library.record_opened(file_path, metadata, imported_from)
         if reloading_same_book:
             removed = ", ".join(removed_classes) or "nothing"
             self.status.show(f"Picture text updated. Removed from the book: {removed}.")
+        elif imported_from:
+            self.status.show(f"Imported into the library and opened: \"{self.book_title}\". "
+                             "Check the ticked sections, then create the audiobook.")
         else:
             self.status.show(f"Ready: \"{self.book_title}\" is open. Check the ticked sections, then create the audiobook.")
 
@@ -410,7 +448,7 @@ class MainWindow(wx.Frame):
         self.open_epub(self.epub_path, removed_classes)
 
     def show_loading_failed(self, file_path, error):
-        self.tools.file_section.open_button.Enable()
+        self.tools.file_section.set_book_buttons_enabled(True)
         self.tools.set_book_actions_enabled(bool(self.book_sections))
         self.status.show(f"❌ Could not open {Path(file_path).name}: {error}")
 
@@ -425,10 +463,13 @@ class MainWindow(wx.Frame):
         included = [section for section in self.book_sections if section.is_included]
         characters = sum(section.text_length for section in included)
         self.book_card.show_read_aloud_length(characters, len(included), len(self.book_sections))
-        file_name = self.book_metadata.audiobook_file_name(fallback=Path(self.epub_path).stem) + ".m4b"
         self.tools.create_section.show_summary(f"{len(included)} sections, {describe_audio_length(characters)}",
-                                               file_name)
+                                               self.audiobook_file_name())
         self.status.show_summary(f"{self.book_title[:40]}: {len(included)} of {len(self.book_sections)} sections ticked")
+
+    def audiobook_file_name(self):
+        """The name of the .m4b of the open book: "Author - Title.m4b" (core.py names it the same way)."""
+        return self.book_metadata.audiobook_file_name(fallback=Path(self.epub_path).stem) + ".m4b"
 
     def on_section_text_edited(self, section):
         self.chapter_list.refresh_length(section)
@@ -523,9 +564,11 @@ class MainWindow(wx.Frame):
         self.tools.set_locked_for_generation(True)
         self.chapter_list.lock_for_generation()
 
+        # The audiobook is made next to the book's EPUB (its own folder in the library), the chapter
+        # .wav files in that folder's "work" subfolder
         params = dict(file_path=self.epub_path, voice=self.tools.voice_section.voice.id, pick_manually=False,
-                      speed=self.tools.speed_section.speed, output_folder=self.tools.file_section.output_folder,
-                      selected_chapters=selected_chapters)
+                      speed=self.tools.speed_section.speed, output_folder=str(Path(self.epub_path).parent),
+                      work_folder=str(Library.work_folder_for(self.epub_path)), selected_chapters=selected_chapters)
         print('Starting audiobook generation', params | {'selected_chapters': len(selected_chapters)})
         self.status.show("Starting the audiobook ...")
         self.core_thread = CoreThread(params)
@@ -573,7 +616,9 @@ class MainWindow(wx.Frame):
         self.tools.create_section.show_finished(outcome)
         self.chapter_list.unlock_after_generation()
         if outcome == "done":
-            open_folder_in_file_manager(self.tools.file_section.output_folder)
+            self.library.record_audiobook_made(self.epub_path, self.audiobook_file_name(),
+                                               self.core_thread.params['voice'])
+            open_folder_in_file_manager(str(Path(self.epub_path).parent))
 
 
 def main():

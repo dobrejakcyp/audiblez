@@ -85,11 +85,15 @@ class ConversionStopped(Exception):
 
 def main(file_path, voice, pick_manually, speed, output_folder='.',
          max_chapters=None, max_sentences=None, selected_chapters=None, post_event=None,
-         text_extractor=None, stop_requested=None):
+         text_extractor=None, stop_requested=None, work_folder=None):
     """
+    output_folder: where the finished .m4b is saved.
+    work_folder: where the chapter .wav files and the helper files for ffmpeg go while the audiobook
+        is made (the window uses the book's own "work" folder, see library.py). Default: output_folder.
+        After a successful run it is removed if it is empty and not the output folder itself.
     stop_requested: an optional threading.Event. When it is set, the conversion stops before the
-    next sentence. Chapters that were already finished stay in the output folder as .wav files,
-    and running the same book again continues with the first unfinished chapter.
+        next sentence. Chapters that were already finished stay in the work folder as .wav files,
+        and running the same book again continues with the first unfinished chapter.
     """
     def status(message, busy=False):  # busy: phase without a percentage, UI shows an animated bar
         print(message)
@@ -97,14 +101,14 @@ def main(file_path, voice, pick_manually, speed, output_folder='.',
 
     try:
         convert(file_path, voice, pick_manually, speed, output_folder, max_chapters, max_sentences,
-                selected_chapters, post_event, text_extractor, stop_requested, status)
+                selected_chapters, post_event, text_extractor, stop_requested, status, work_folder)
     except ConversionStopped:
         status('⏹ Stopped. Finished chapters are kept; start again to continue where it stopped.')
         if post_event: post_event('CORE_FINISHED', stopped=True)
 
 
 def convert(file_path, voice, pick_manually, speed, output_folder, max_chapters, max_sentences,
-            selected_chapters, post_event, text_extractor, stop_requested, status):
+            selected_chapters, post_event, text_extractor, stop_requested, status, work_folder=None):
     """The original body of main(); moved here so main() can catch ConversionStopped in one place."""
 
     if post_event: post_event('CORE_STARTED')
@@ -112,6 +116,8 @@ def convert(file_path, voice, pick_manually, speed, output_folder, max_chapters,
     load_spacy()
     output_folder = Path(output_folder).resolve()  # relative paths break ffmpeg concat (issue #133)
     output_folder.mkdir(parents=True, exist_ok=True)
+    work_folder = Path(work_folder).resolve() if work_folder else output_folder
+    work_folder.mkdir(parents=True, exist_ok=True)
 
     extension = '.epub'
     book = epub.read_epub(file_path)
@@ -170,7 +176,7 @@ def convert(file_path, voice, pick_manually, speed, output_folder, max_chapters,
         stats.chapter = f'{i} of {len(selected_chapters)}'
         text = chapter.extracted_text
         xhtml_file_name = chapter.get_name().replace(' ', '_').replace('/', '_').replace('\\', '_')
-        chapter_wav_path = Path(output_folder) / filename.replace(extension, f'_chapter_{i}_{voice}_{xhtml_file_name}.wav')
+        chapter_wav_path = work_folder / filename.replace(extension, f'_chapter_{i}_{voice}_{xhtml_file_name}.wav')
         chapter_wav_files.append(chapter_wav_path)
         chapter_titles[chapter_wav_path] = chapter.title
         if Path(chapter_wav_path).exists():
@@ -204,14 +210,29 @@ def convert(file_path, voice, pick_manually, speed, output_folder, max_chapters,
             print(f'Warning: No audio generated for chapter {i}')
             chapter_wav_files.remove(chapter_wav_path)
 
+    # The window waits for CORE_FINISHED, so it is sent on every path, and says whether the .m4b exists.
+    m4b_created = False
     if has_ffmpeg:
         status('Creating the .m4b file: joining chapters and compressing audio (can take several minutes)…', busy=True)
-        create_index_file(title, creator, chapter_wav_files, output_folder, chapter_titles)
-        if create_m4b(chapter_wav_files, filename, cover_image, output_folder):
+        create_index_file(title, creator, chapter_wav_files, work_folder, chapter_titles)
+        m4b_created = create_m4b(chapter_wav_files, filename, cover_image, output_folder, work_folder)
+        if m4b_created:
+            remove_if_empty(work_folder, keep=output_folder)
             status(f'✅ Done: {filename.replace(".epub", ".m4b")} created')
         else:
             status('❌ Creating the .m4b file failed, see the console window for details')
-        if post_event: post_event('CORE_FINISHED')
+    else:
+        status('❌ ffmpeg is not installed, so the chapters could not be joined into an .m4b file')
+    if post_event: post_event('CORE_FINISHED', failed=not m4b_created)
+
+
+def remove_if_empty(folder, keep):
+    """Remove the work folder once the audiobook is made, unless it still holds something or is `keep`."""
+    if folder != keep:
+        try:
+            folder.rmdir()  # only works on an empty folder, so nothing can be lost here
+        except OSError:
+            pass
 
 
 def find_document_chapters_and_extract_texts(book):
@@ -296,25 +317,27 @@ def strfdelta(tdelta, fmt='{D:02}d {H:02}h {M:02}m {S:02}s'):
     return f.format(fmt, **values)
 
 
-def concat_wavs_with_ffmpeg(chapter_files, output_folder, filename):
-    wav_list_txt = Path(output_folder) / filename.replace('.epub', '_wav_list.txt')
+def concat_wavs_with_ffmpeg(chapter_files, work_folder, filename):
+    wav_list_txt = Path(work_folder) / filename.replace('.epub', '_wav_list.txt')
     with open(wav_list_txt, 'w', encoding='utf-8') as f:
         for wav_file in chapter_files:
             f.write(f"file '{wav_file}'\n")
-    concat_file_path = Path(output_folder) / filename.replace('.epub', '.tmp.mp4')
+    concat_file_path = Path(work_folder) / filename.replace('.epub', '.tmp.mp4')
     subprocess.run(['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', wav_list_txt, '-c', 'copy', concat_file_path])
     Path(wav_list_txt).unlink()
     return concat_file_path
 
 
-def create_m4b(chapter_files, filename, cover_image, output_folder):
-    concat_file_path = concat_wavs_with_ffmpeg(chapter_files, output_folder, filename)
+def create_m4b(chapter_files, filename, cover_image, output_folder, work_folder=None):
+    """Join the chapters into output_folder/<name>.m4b. Helper files are made in work_folder (default: output_folder)."""
+    work_folder = work_folder or output_folder
+    concat_file_path = concat_wavs_with_ffmpeg(chapter_files, work_folder, filename)
     final_filename = Path(output_folder) / filename.replace('.epub', '.m4b')
-    chapters_txt_path = Path(output_folder) / "chapters.txt"
+    chapters_txt_path = Path(work_folder) / "chapters.txt"
     print('Creating M4B file...')
 
     if cover_image:
-        cover_file_path = Path(output_folder) / 'cover'
+        cover_file_path = Path(work_folder) / 'cover'
         with open(cover_file_path, 'wb') as f:
             f.write(cover_image)
         cover_image_args = ["-i", f'{cover_file_path}', "-map", "2:v"]
@@ -357,9 +380,10 @@ def ffmetadata_escape(s):
     return re.sub(r'([=;#\\\n])', r'\\\1', s)
 
 
-def create_index_file(title, creator, chapter_mp3_files, output_folder, chapter_titles=None):
+def create_index_file(title, creator, chapter_mp3_files, folder, chapter_titles=None):
+    """Write folder/chapters.txt: the book's title, author and chapter marks for ffmpeg."""
     chapter_titles = chapter_titles or {}
-    with open(Path(output_folder) / "chapters.txt", "w", encoding="utf-8") as f:
+    with open(Path(folder) / "chapters.txt", "w", encoding="utf-8") as f:
         f.write(f";FFMETADATA1\ntitle={ffmetadata_escape(title)}\nartist={ffmetadata_escape(creator)}\n\n")
         start = 0
         i = 0

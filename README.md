@@ -27,6 +27,7 @@ Audiblez turns `.epub` e-books into `.m4b` audiobooks with chapters, using the
 | **Voices** | voice list | languages and voices with readable names, **instant offline samples**, an "All voices" overview |
 | **During conversion** | no way to stop except closing the program | **Stop** button; finished chapters are kept and a new start **continues where it stopped** |
 | **Audiobook file name** | named after the EPUB file | `Author - Title.m4b` from the book's details |
+| **Library** | — | **Import** copies a book into its own folder in one library folder, next to its audiobook; the **Library** window shows every book and whether it was opened, partly made or made into an audiobook |
 | **Comfort** | — | read any highlighted text aloud (right-click), choose the **font** of the book text, status bar, settings remembered |
 | **Packaging** | pip / Poetry | [uv](https://docs.astral.sh/uv/), with PyTorch's CUDA build locked in |
 
@@ -74,7 +75,8 @@ export UV_PROJECT_ENVIRONMENT=~/.venvs/audiblez
 
 **Tool column (left)** — in the order you use it; drag its edge to make it wider.
 
-1. **Book file** — open an EPUB and choose where the audiobook is saved.
+1. **Book** — **Import EPUB** copies a book (from Downloads, say) into the library and opens it; the original file
+   is not changed. **Library** lists every imported book (also Ctrl+L). Below them: the library folder.
 2. **Voice** — language, voice and CPU/GPU. **Listen** plays a sample at once; **All voices…** lists every
    voice with its language and gender, and whether it is on your computer.
 3. **Speed** — slider or exact number (0.5–2.0); double-click the slider to go back to 1.0.
@@ -84,6 +86,21 @@ export UV_PROJECT_ENVIRONMENT=~/.venvs/audiblez
 
 **Create audiobook** stays at the bottom: it shows how long the audiobook will be and its file name, and turns
 into **Stop** while working. Stopping keeps the finished chapters; pressing Create again continues from there.
+
+**The library** — one folder (by default `Documents\Audiobook Library`) with a folder per book:
+
+```
+Audiobook Library/
+  library.json                     when each book was imported, last opened and made into an audiobook
+  Yuval Noah Harari - Nexus/
+    Nexus.epub                     the imported copy
+    Yuval Noah Harari - Nexus.m4b  the audiobook
+    work/                          chapter .wav files while it is being made (removed when done)
+```
+
+The Library window reads each book's status from its folder (✅ audiobook made, ⏸ partly made, 📖 opened,
+📥 imported), so it is always right: delete an `.m4b` and the book shows as not made yet. Double-click a book to
+open it.
 
 **Book card (top)** — cover, author, ISBN, publisher, a short description and buttons that search for the
 book and its author on Wikipedia, DuckDuckGo and Goodreads (nothing is looked up until you click).
@@ -102,7 +119,7 @@ It lists every font on your system, recommends good serif reading fonts you have
 your own favourites. Changes are shown live; Cancel restores the previous font.
 
 The **status bar** at the bottom always says what the program is doing (opening a book shows each step).
-Your choices — voice, speed, folders, window size, column width, font — are saved in `settings.json` in the
+Your choices — voice, speed, library folder, window size, column width, font — are saved in `settings.json` in the
 project folder; delete it to go back to the defaults.
 
 ## Command line
@@ -177,6 +194,7 @@ audiblez/
   picture_text_detector.py      captions and credits found by their position
   book_metadata.py              title, author, ISBN, cover, links, file names
   voice_library.py, voices.py   languages, voices and the offline samples
+  library.py                    the library folder, importing, library.json, each book's status
   settings.py, fonts.py         remembered settings; font lists
   ui*.py                        the window (wxPython)
   test_cleaning_rules.py        self-checks

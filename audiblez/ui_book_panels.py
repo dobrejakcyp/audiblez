@@ -34,7 +34,7 @@ class BookCard(wx.Panel):
 
         self.cover = wx.StaticBitmap(box)
         self.title = bold(wx.StaticText(box, label="No book opened"), size_change=3)
-        self.description = wx.StaticText(box, label="Use 'Open EPUB' in the tools on the left to choose a book.")
+        self.description = wx.StaticText(box, label="Use 'Import EPUB' or 'Library' in the tools on the left to choose a book.")
 
         details_grid = wx.FlexGridSizer(cols=2, vgap=3, hgap=12)
         self.detail_values = {}

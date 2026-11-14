@@ -21,8 +21,8 @@ class UserSettings:
     voice_id: str = "bm_george"
     speed: float = 1.0
     device: str = "cuda"  # "cuda" or "cpu"
-    output_folder: str = ""  # "" = the program folder
-    last_book_folder: str = ""  # where the Open dialog starts
+    library_folder: str = ""  # the audiobook library (library.py); "" = Documents\\Audiobook Library
+    last_book_folder: str = ""  # where the Import dialog starts (e.g. Downloads)
     show_short_files: bool = False
     window_size: list = field(default_factory=list)  # [width, height]; empty = choose automatically
     window_position: list = field(default_factory=list)  # [x, y]

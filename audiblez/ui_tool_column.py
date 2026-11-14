@@ -4,7 +4,7 @@ ui_tool_column.py - the column of tools on the far left of the window.
 The column has two parts:
 
     scrolling part (new tools go here, in the order you use them)
-        1. Book file          open an EPUB, choose where the audiobook is saved
+        1. Book               import an EPUB into the library, open the Library window, choose the library folder
         2. Voice              language, model, voice (with an instant sample), CPU or GPU
         3. Speed              slider and a number box, kept in sync
         4. Picture text       captions and photo credits found next to pictures: jump to them, remove them
@@ -15,7 +15,6 @@ To hear a piece of the book, highlight it in the text column and right-click (se
 Every section is a ToolSection: a titled box with its controls stacked inside.
 Buttons call methods of MainWindow (in ui.py); the sections never talk to each other.
 """
-import os
 import platform
 import subprocess
 import time
@@ -94,33 +93,53 @@ class ToolSection(wx.Panel):
 # =============================================================================================
 
 class FileSection(ToolSection):
+    """
+    Import copies an EPUB (e.g. from Downloads) into its own folder in the library; the audiobook is
+    made next to it. The Library window lists every imported book with what has happened to it.
+    """
+
     def __init__(self, parent, main_window):
-        super().__init__(parent, "1. Book file")
-        self.open_button = self.add(wx.Button(self.box, label="📁 Open EPUB..."))
-        self.open_button.Bind(wx.EVT_BUTTON, main_window.on_open)
+        super().__init__(parent, "1. Book")
+        self.main_window = main_window
+        self.import_button = wx.Button(self.box, label="📥 Import EPUB...")
+        self.import_button.SetToolTip("Copy an EPUB into the library and open it. The original file is not changed.")
+        self.import_button.Bind(wx.EVT_BUTTON, main_window.on_import)
+        self.library_button = wx.Button(self.box, label="📚 Library...")
+        self.library_button.SetToolTip("Every imported book: opened, partly made or made into an audiobook")
+        self.library_button.Bind(wx.EVT_BUTTON, main_window.on_show_library)
+        self.add_row((self.import_button, 1), (self.library_button, 1))
         self.input_name = self.add(wx.StaticText(self.box, label="No book opened yet", style=wx.ST_ELLIPSIZE_MIDDLE))
 
-        self.add(bold(self.label("Save the audiobook to:")))
-        self.output_folder_text = self.add(wx.TextCtrl(self.box, value=os.path.abspath('.'), style=wx.TE_READONLY))
+        self.add(bold(self.label("Library folder:")))
+        self.library_folder_text = self.add(wx.TextCtrl(self.box, value="", style=wx.TE_READONLY))
         change_button = wx.Button(self.box, label="📂 Change...")
         open_folder_button = wx.Button(self.box, label="Show folder")
-        change_button.Bind(wx.EVT_BUTTON, self.choose_output_folder)
-        open_folder_button.Bind(wx.EVT_BUTTON, lambda event: open_folder_in_file_manager(self.output_folder))
+        change_button.Bind(wx.EVT_BUTTON, self.choose_library_folder)
+        open_folder_button.Bind(wx.EVT_BUTTON, lambda event: open_folder_in_file_manager(self.library_folder))
         self.add_row((change_button, 1), (open_folder_button, 1))
         self.finish()
 
     @property
-    def output_folder(self):
-        return self.output_folder_text.GetValue()
+    def library_folder(self):
+        return self.library_folder_text.GetValue()
+
+    def show_library_folder(self, folder):
+        self.library_folder_text.SetValue(str(folder))
 
     def show_input_file(self, file_path):
         self.input_name.SetLabel(Path(file_path).name)
-        self.input_name.SetToolTip(file_path)
+        self.input_name.SetToolTip(str(file_path))
 
-    def choose_output_folder(self, event):
-        with wx.DirDialog(self, "Choose where to save the audiobook:", defaultPath=self.output_folder) as dialog:
+    def set_book_buttons_enabled(self, enabled):
+        """Off while a book is being read in, so a second one cannot start at the same time."""
+        self.import_button.Enable(enabled)
+        self.library_button.Enable(enabled)
+
+    def choose_library_folder(self, event):
+        with wx.DirDialog(self, "Choose the library folder (books and audiobooks are kept here):",
+                          defaultPath=self.library_folder) as dialog:
             if dialog.ShowModal() == wx.ID_OK:
-                self.output_folder_text.SetValue(dialog.GetPath())
+                self.main_window.on_library_folder_changed(dialog.GetPath())
 
 
 # =============================================================================================
@@ -289,8 +308,9 @@ class CreateSection(ToolSection):
 
     def show_finished(self, outcome):
         """outcome is "done", "stopped" or "failed"."""
-        if outcome != "done":
-            self.gauge.SetValue(0)
+        # The last phase (making the .m4b) runs the bar in its animated "busy" mode, which keeps moving
+        # until a value is set. Setting one stops the animation: full for done, empty otherwise.
+        self.gauge.SetValue(100 if outcome == "done" else 0)
         self.time_left.SetLabel(self.FINISHED_MESSAGES[outcome])
         self.stop_button.Hide()
         self.start_button.Show()
@@ -462,15 +482,13 @@ class ToolColumn(wx.Panel):
             self.voice_section.select_voice(voice)
         self.voice_section.select_device(settings.device)
         self.speed_section.set_speed(settings.speed)
-        if settings.output_folder and os.path.isdir(settings.output_folder):
-            self.file_section.output_folder_text.SetValue(settings.output_folder)
 
     def store_settings(self, settings):
         """Copy the current state of the controls into `settings` (saving is done by the caller)."""
         settings.voice_id = self.voice_section.voice.id
         settings.device = self.voice_section.device
         settings.speed = self.speed_section.speed
-        settings.output_folder = self.file_section.output_folder
+        settings.library_folder = self.file_section.library_folder
 
 
 def double_click_seconds():
