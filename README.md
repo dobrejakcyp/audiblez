@@ -8,13 +8,15 @@ Audiblez turns `.epub` e-books into `.m4b` audiobooks with chapters, using the
 > It is based on release v0.4.9; their code and full history are kept in this repository (tag `v0.4.9`), and
 > it stays under the original MIT licence. All credit for Audiblez itself goes to them.
 >
-> The fork focuses on one thing: **hearing only the book itself** — without footnote numbers, picture
-> captions, photo credits, indexes or contents pages read aloud — and on a window that makes it easy to check
-> and adjust what will be read before a long conversion starts.
+> The fork focuses on two things: **hearing only the book itself** — without footnote numbers, picture
+> captions, photo credits, indexes or contents pages read aloud — and **hearing its structure**, the way a
+> narrator would: chapters and parts announced, pauses at new sections, quotations and poems read naturally.
+> A window makes it easy to check and adjust what will be read before a long conversion starts.
 
 ![The Audiblez window: tool column, book card, book contents and the text that will be read aloud](./imgs/fork-main-window.png)
 
-*The screenshots show a small made-up demo book, so no copyrighted book appears here.*
+*The screenshots show a small made-up demo book, "The Lighthouse Keeper's Notebook", written for this page, so
+no copyrighted book appears here.*
 
 ## What is different from the original
 
@@ -22,13 +24,14 @@ Audiblez turns `.epub` e-books into `.m4b` audiobooks with chapters, using the
 |---|---|---|
 | **Text cleaning** | captions with standard names are skipped | footnotes, note markers, indexes, contents lists and page numbers are removed too; you can see what was removed and why (`--report`) |
 | **Picture text** | — | captions and photo credits are **found by their position next to pictures**, whatever the publisher called them; you can jump to each one and remove them |
-| **Which parts are read** | files whose *name* looks like a chapter | real **chapter titles** from the book's table of contents; afterwords and prefaces are included, notes, index, copyright and similar pages are not; every row says **why** |
-| **Window** | list of file names, settings on the side | tool column, book card with cover and links, contents list with greyed-out skipped parts, editable text with highlighting |
+| **Which parts are read** | files whose *name* looks like a chapter | real **chapter titles** from the book's table of contents, also numbered titles; afterwords and prefaces are included, notes, index, copyright, title pages and similar pages are not; every row says **why** |
+| **What you hear** | the text as one stream | **spoken chapter and part headings**, **pauses** around headings and subheadings, **"Quote … End quote"** around quoted extracts, poems read as **flowing text**, no sounds on quotation marks |
+| **Window** | list of file names, settings on the side | tool column, book card with cover and links, contents list with greyed-out skipped parts, editable text **coloured by kind** (headings, quotations, picture text), **search the book** |
 | **Voices** | voice list | languages and voices with readable names, **instant offline samples**, an "All voices" overview |
 | **During conversion** | no way to stop except closing the program | **Stop** button; finished chapters are kept and a new start **continues where it stopped** |
 | **Audiobook file name** | named after the EPUB file | `Author - Title.m4b` from the book's details |
-| **Library** | — | **Import** copies a book into its own folder in one library folder, next to its audiobook; the **Library** window shows every book and whether it was opened, partly made or made into an audiobook |
-| **Comfort** | — | read any highlighted text aloud (right-click), choose the **font** of the book text, status bar, settings remembered |
+| **Library** | — | **Import** (one book or many) copies books into one library folder, each next to its audiobook; the **Library** window shows every book and whether it was opened, partly made or made into an audiobook |
+| **Comfort** | — | read any highlighted text aloud (right-click), choose the **font** of the book text, a coloured **status banner** that flashes on errors, settings remembered |
 | **Packaging** | pip / Poetry | [uv](https://docs.astral.sh/uv/), with PyTorch's CUDA build locked in |
 
 ## Installation
@@ -89,20 +92,28 @@ export UV_PROJECT_ENVIRONMENT=~/.venvs/audiblez
 **Create audiobook** stays at the bottom: it shows how long the audiobook will be and its file name, and turns
 into **Stop** while working. Stopping keeps the finished chapters; pressing Create again continues from there.
 
-**The library** — one folder (by default `Documents\Audiobook Library`) with a folder per book:
+### The library
+
+One folder (by default `Documents\Audiobook Library`) holds a folder per book, named "Author - Title":
 
 ```
 Audiobook Library/
-  library.json                     when each book was imported, last opened and made into an audiobook
-  Yuval Noah Harari - Nexus/
-    Nexus.epub                     the imported copy
-    Yuval Noah Harari - Nexus.m4b  the audiobook
-    work/                          chapter .wav files while it is being made (removed when done)
+  library.json                                        when each book was imported, opened, made into an audiobook
+  Mara Ellison - The Lighthouse Keeper's Notebook/
+    lighthouse-keepers-notebook.epub                  the imported copy (the original file is not changed)
+    Mara Ellison - The Lighthouse Keeper's Notebook.m4b   the audiobook
+    work/                                             chapter .wav files while it is being made (removed when done)
 ```
 
-The Library window reads each book's status from its folder (✅ audiobook made, ⏸ partly made, 📖 opened,
-📥 imported), so it is always right: delete an `.m4b` and the book shows as not made yet. Double-click a book to
-open it.
+Authors written "Surname, First" in the book ("Ellison, Mara") are put in reading order for these names.
+The **Library** window (Ctrl+L) lists every book, most recent first:
+
+![The Library window: every imported book with its status and dates](./imgs/fork-library-window.png)
+
+Each book's status is read from its folder (✅ audiobook made, ⏸ partly made, 📖 opened, 📥 imported), so it is
+always right: delete an `.m4b` and the book shows as not made yet. Double-click a book to open it.
+
+### Book card, contents and text
 
 **Book card (top)** — cover, author, ISBN, publisher, a short description and buttons that search for the
 book and its author on Wikipedia, DuckDuckGo and Goodreads (nothing is looked up until you click).
@@ -111,25 +122,60 @@ book and its author on Wikipedia, DuckDuckGo and Goodreads (nothing is looked up
 read aloud, grey parts are skipped; the **Why** column explains each decision ("chapter", "notes",
 "copyright", …). You can change any tick. Empty files (cover, title pages) are hidden unless you ask for them.
 
-**Text (right)** — exactly what will be read aloud, and you can edit it. Lines are coloured by what they are:
-chapter and part headings and subheadings light blue, quotations lavender, picture text that has not been removed yellow (a
-small legend sits above the text). Every chapter starts with a spoken heading such as "Part 1. Chapter One. Oil
-Drops.", and quoted extracts are framed by "Quote." and "End quote." — all of them are ordinary lines you can
-edit or delete. Subheadings inside chapters — real headings, or short lines in capitals such as "THE CULTURAL
-BREW" — are spoken with a short pause before and after, the way a narrator marks a new section. A poem printed
-one short line per paragraph is joined into flowing text, so it is not read as a string of tiny sentences (lists,
-table cells and code stay line by line). **Search the book** (the box above the text, or Ctrl+F) finds a word in every section and jumps
-from place to place with ◀ ▶ (or Enter / Shift+Enter). **Highlight any text and right-click** to hear it with the chosen voice and speed.
-**Aa Font…** (or View → Text font) chooses the font of this text:
+**Text (right)** — exactly what will be read aloud, and you can edit it. Lines are coloured by what they are
+(a small legend sits above the text):
+
+- **light blue** — chapter and part headings, and subheadings inside a chapter
+- **lavender** — quotations, with their "Quote." and "End quote." lines
+- **yellow** — picture text that has not been removed (tool 4)
+
+After you edit a section by hand its colours are switched off, because the lines may no longer match.
+
+- **Search the book** — the box above the text, or Ctrl+F. It searches every section, ticked or not, and jumps
+  from place to place with ◀ ▶ (or Enter / Shift+Enter), showing "1 of 5".
+- **Highlight any text and right-click** to hear it with the chosen voice and speed.
+- **Aa Font…** (or View → Text font) chooses the font of this text:
 
 ![The Text font window: recommended serif fonts, favourites, all fonts, size and a preview](./imgs/fork-font-window.png)
 
 It lists every font on your system, recommends good serif reading fonts you have installed, and lets you keep
 your own favourites. Changes are shown live; Cancel restores the previous font.
 
-The **status banner** at the bottom always says what the program is doing (opening a book shows each step). Errors flash red and warnings flash amber, and both stay coloured until the next message or until you click ✕; a finished job shows green and then fades.
+### Status banner
+
+The banner at the bottom always says what the program is doing (opening a book shows each step). Errors flash red
+and warnings flash amber, and both stay coloured until the next message or until you click ✕; a finished job
+shows green and then fades back:
+
+![The status banner showing an error in red](./imgs/fork-status-banner.png)
+
 Your choices — voice, speed, library folder, window size, column width, font — are saved in `settings.json` in the
 project folder; delete it to go back to the defaults.
+
+## What you hear
+
+The text column shows these additions as ordinary lines, so you can see, edit or delete each of them before the
+audiobook is made. The start of the demo book's first chapter, as printed and as read:
+
+| Printed in the book | Read aloud |
+|---|---|
+| *(a page of its own)* Part One / The Island | Part One. The Island. |
+| One / FIRST LIGHT | Chapter One. FIRST LIGHT. *(pause)* |
+| THE LAMP ROOM *(a subheading in capitals)* | *(pause)* THE LAMP ROOM. *(pause)* |
+| an indented letter | Quote. Wind the clock at dusk … End quote. |
+| a poem, one short line per paragraph | When the fog comes walking over the grey stones, keep the light talking so the boats get home. |
+
+- **Chapter headings** come from the table of contents and replace the printed heading lines ("One." and
+  "FIRST LIGHT." are not read twice). A part page is too short to be read on its own, so its name is spoken at
+  the start of the next chapter.
+- **Subheadings** — real headings, or short lines in capitals followed by text — get about 0.7 seconds of
+  silence before and after, the way a narrator marks a new section.
+- **Quoted extracts** (a block quote in the book) are framed by "Quote." and "End quote.", unless the block is
+  long or fills most of the page (some books indent whole chapters that way).
+- **Poems** printed one line per paragraph are joined into flowing text instead of a string of tiny sentences.
+  Lists, table cells and code stay line by line.
+- **Quotation marks** are not given to the voice: Kokoro sometimes makes an audible sound on them.
+- The first chapter starts with the book's title and author.
 
 ## Command line
 
@@ -163,6 +209,9 @@ That is the place to spot book-specific leftovers, which you can then remove wit
    picture. A kind of paragraph that is nearly always next to a picture — and is only a small part of the book —
    is offered as a caption or photo credit. This works with any publisher's naming, because it relies on
    position, not on names.
+
+4. **Spoken structure** (`audiblez/spoken_headings.py`, `audiblez/spoken_blocks.py`) adds the headings,
+   quotation markers and pauses described under [What you hear](#what-you-hear).
 
 Nothing is removed silently: the window shows what was skipped and why, and you can change every decision.
 
