@@ -56,7 +56,7 @@ wheels = [
 
 [[package]]
 name = "audiblez"
-version = "0.6.0+dobrejakcyp"
+version = "0.6.1+dobrejakcyp"
 source = { editable = "." }
 dependencies = [
     { name = "bs4" },

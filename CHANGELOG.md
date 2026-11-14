@@ -3,6 +3,13 @@
 Versions of the dobrejakcyp fork of [Audiblez](https://github.com/santinic/audiblez). The `+dobrejakcyp` label marks
 a fork build, so it cannot be confused with an official Audiblez release.
 
+## 0.6.1+dobrejakcyp — 2026-11-14
+
+### Fixed
+- The audiobook could not be joined into an `.m4b` when the book's library folder has an apostrophe in its name
+  ("The World's ..."): ffmpeg's list of chapter files now escapes it. If joining fails for another reason, the
+  conversion stops with a clear message and keeps the finished chapters, so Create can simply try again.
+
 ## 0.6.0+dobrejakcyp — 2026-11-14
 
 ### Library
